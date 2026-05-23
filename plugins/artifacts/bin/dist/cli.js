@@ -454,6 +454,12 @@ var init_api = __esm({
           { sha }
         );
       }
+      listGrants(slug) {
+        return this.request(
+          "GET",
+          `/v1/projects/${encodeURIComponent(slug)}/grants`
+        );
+      }
       grant(slug, req) {
         const body = { email: req.email, env: req.env ?? "both" };
         return this.request(
@@ -6593,6 +6599,7 @@ var grants_exports = {};
 __export(grants_exports, {
   grant: () => grant,
   invite: () => invite,
+  listGrants: () => listGrants,
   revoke: () => revoke
 });
 import { existsSync as existsSync4 } from "node:fs";
@@ -6620,6 +6627,28 @@ async function resolveSlug(explicit) {
   if (!slug) throw new Error(`could not parse a slug from ${btrmnt.refs.push}`);
   return slug;
 }
+async function listGrants(args) {
+  const slug = await resolveSlug(args.slug);
+  const creds = readCredentials();
+  const endpoint = args.apiEndpoint ?? creds.api_endpoint ?? resolveApiEndpoint();
+  const client = new ApiClient(endpoint, creds.token);
+  const grants = await client.listGrants(slug);
+  const order = [];
+  const byEmail = /* @__PURE__ */ new Map();
+  for (const g of grants) {
+    if (!byEmail.has(g.email)) {
+      byEmail.set(g.email, /* @__PURE__ */ new Set());
+      order.push(g.email);
+    }
+    byEmail.get(g.email).add(g.env);
+  }
+  const envOrder = (e) => e === "test" ? 0 : 1;
+  const viewers = order.map((email) => ({
+    email,
+    envs: Array.from(byEmail.get(email)).sort((a, b2) => envOrder(a) - envOrder(b2))
+  }));
+  writeStdout({ slug, viewers });
+}
 async function grant(args) {
   assertEmail(args.email);
   const slug = await resolveSlug(args.slug);
@@ -6646,7 +6675,7 @@ async function invite(args) {
   const result = await client.invite({ email: args.email, role: args.role });
   writeStdout({
     ...result,
-    message: `Invited ${result.user.email}. Tell them to install the plugin and run /artifacts:login.`
+    message: `Invited ${result.user.email}. Tell them to install the plugin and run /artifacts to sign in.`
   });
 }
 var EMAIL_BASIC_RE;
@@ -6676,6 +6705,7 @@ var COMMANDS = [
   { name: "promote", description: "Fast-forward a project's prod branch to main and deploy." },
   { name: "rollback", description: "Roll a project's prod branch back to an explicit historical commit." },
   { name: "grant", description: "Grant a user access to a project (test, prod, or both)." },
+  { name: "grants", description: "List who has direct viewer access to a project, grouped by email." },
   { name: "revoke", description: "Revoke a user's access to a project." },
   { name: "invite", description: "Invite a new user into the current tenant." },
   { name: "list", description: "List projects (alias of `project list`)." }
@@ -6852,6 +6882,16 @@ async function dispatch(name, rest) {
         email,
         ...slugArg !== void 0 ? { slug: slugArg } : {},
         env,
+        ...optStr(flags, "api-endpoint", "apiEndpoint")
+      });
+      return 0;
+    }
+    case "grants": {
+      const { positional, flags } = parseFlags(rest);
+      const slugArg = positional[0];
+      const { listGrants: listGrants2 } = await Promise.resolve().then(() => (init_grants(), grants_exports));
+      await listGrants2({
+        ...slugArg !== void 0 ? { slug: slugArg } : {},
         ...optStr(flags, "api-endpoint", "apiEndpoint")
       });
       return 0;

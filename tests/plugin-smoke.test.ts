@@ -18,17 +18,9 @@ const REPO_ROOT = resolve(__dirname, '..')
 const PLUGIN_DIR = resolve(REPO_ROOT, 'plugins/artifacts')
 const BTRMNT_BIN = resolve(PLUGIN_DIR, 'bin/btrmnt')
 
-const SKILL_NAMES = [
-  'login',
-  'new',
-  'publish',
-  'promote',
-  'grant',
-  'revoke',
-  'list',
-  'invite',
-  'whoami',
-] as const
+// Single umbrella skill — users invoke /artifacts and describe intent in
+// natural language; the skill markdown maps that to a btrmnt subcommand.
+const SKILL_NAMES = ['artifacts'] as const
 
 // Subcommands the bin tool must understand (matches the plan §W1b list).
 // Each `--help` invocation must exit 0 with parseable JSON.
