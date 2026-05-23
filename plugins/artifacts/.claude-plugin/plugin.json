@@ -9,6 +9,7 @@
   "userConfig": {
     "api_endpoint": {
       "type": "string",
+      "title": "API endpoint",
       "default": "https://api.btrmntlab.com",
       "description": "Platform API URL. Override for self-hosted deployments."
     }
