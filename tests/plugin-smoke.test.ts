@@ -6,10 +6,11 @@
 // JSON-output contract, not the real behaviour of any (sub)command.
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import yaml from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -139,6 +140,40 @@ describe('bin/btrmnt', () => {
       expect(() => JSON.parse(stdout)).not.toThrow()
     })
   }
+
+  // Regression guard: when Claude Code clones the marketplace repo into the
+  // plugin cache, there is no `pnpm install` step — so the shipped bin must
+  // run with ONLY `bin/btrmnt` + `bin/dist/cli.js` present, no node_modules
+  // anywhere on the path. Copy those two files into a tmp dir that has no
+  // ancestor `node_modules` and invoke `btrmnt --help`.
+  describe('runs without node_modules (plugin-cache layout)', () => {
+    let isolatedBin = ''
+    let tmpRoot = ''
+
+    beforeAll(() => {
+      tmpRoot = mkdtempSync(resolve(tmpdir(), 'btrmnt-plugin-cache-'))
+      cpSync(BTRMNT_BIN, resolve(tmpRoot, 'btrmnt'))
+      cpSync(resolve(PLUGIN_DIR, 'bin/dist'), resolve(tmpRoot, 'dist'), {
+        recursive: true,
+      })
+      isolatedBin = resolve(tmpRoot, 'btrmnt')
+    })
+
+    afterAll(() => {
+      if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true })
+    })
+
+    it('`--help` exits 0 with parseable JSON', () => {
+      const result = spawnSync(isolatedBin, ['--help'], { encoding: 'utf-8' })
+      const stderr = result.stderr ?? ''
+      // A non-bundled runtime import (e.g. simple-git) would surface as
+      // `Cannot find package` on stderr — surface that loudly if it happens.
+      expect(stderr, stderr).toBe('')
+      expect(result.status).toBe(0)
+      const parsed = JSON.parse(result.stdout ?? '') as { commands?: unknown }
+      expect(Array.isArray(parsed.commands)).toBe(true)
+    })
+  })
 })
 
 describe('hooks/hooks.json', () => {
