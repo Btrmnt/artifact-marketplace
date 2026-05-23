@@ -30,13 +30,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Build @btrmnt/artifact-types first so workspace consumers
+      # (bin/btrmnt) can resolve its dist/*.d.ts during typecheck.
+      - run: pnpm --filter @btrmnt/artifact-types build
       - run: pnpm -r --if-present run lint
       - run: pnpm -r --if-present run typecheck
       # Runs the 54+ vitest specs across the workspace (plugin smoke,
@@ -74,13 +75,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Build the types package first; the CLI imports it via workspace:*
+      # and its `types` field points at dist/.
+      - run: pnpm --filter @btrmnt/artifact-types build
       - run: pnpm --filter @btrmnt/artifacts-cli build
       - name: assert committed dist/ matches src/
         run: |
@@ -102,8 +104,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
