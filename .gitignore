@@ -1,0 +1,16 @@
+node_modules/
+dist/
+# The plugin CLI ships precompiled — Claude Code clones the repo verbatim
+# and does not run pnpm install/build on user machines. CI enforces that
+# this checked-in dist/ matches src/ via the `verify-dist-fresh` job.
+!plugins/artifacts/bin/dist/
+build/
+.env
+.env.*
+!.env.example
+.vitest-cache/
+.cache/
+coverage/
+.DS_Store
+*.log
+.pnpm-store/

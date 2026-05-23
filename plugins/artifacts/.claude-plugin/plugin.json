@@ -1,0 +1,16 @@
+{
+  "name": "artifacts",
+  "description": "Publish HTML artifacts to a private, Cloudflare-Access-gated host without leaving Claude Code.",
+  "author": {
+    "name": "btrmnt",
+    "email": "plugins@btrmnt.ai"
+  },
+  "homepage": "https://github.com/btrmnt/artifact-marketplace",
+  "userConfig": {
+    "api_endpoint": {
+      "type": "string",
+      "default": "https://api.btrmntlab.com",
+      "description": "Platform API URL. Override for self-hosted deployments."
+    }
+  }
+}

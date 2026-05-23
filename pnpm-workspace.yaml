@@ -1,0 +1,4 @@
+packages:
+  - packages/types
+  - plugins/artifacts/bin
+  - tests

@@ -1,0 +1,14 @@
+{
+  "name": "artifact-marketplace",
+  "owner": {
+    "name": "btrmnt",
+    "email": "plugins@btrmnt.ai"
+  },
+  "plugins": [
+    {
+      "name": "artifacts",
+      "source": "./plugins/artifacts",
+      "description": "Publish HTML artifacts to a private, CF-Access-gated host without leaving Claude Code."
+    }
+  ]
+}

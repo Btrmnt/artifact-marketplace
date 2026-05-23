@@ -1,0 +1,13 @@
+#!/usr/bin/env node
+// Thin shebang wrapper so Claude Code's PATH-injection can find `btrmnt`. The
+// real CLI lives in src/cli.ts and is compiled to dist/cli.js.
+//
+// dist/ is intentionally committed (see .gitignore exception). Claude Code
+// clones this repo verbatim on plugin install — there is no postinstall
+// build step — so the only way to ship a working CLI is to check in the
+// compiled output. The `verify-dist-fresh` CI job enforces that the
+// committed dist matches src/ on every push to main.
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+const __dirname = dirname(fileURLToPath(import.meta.url))
+await import(resolve(__dirname, 'dist', 'cli.js'))
