@@ -79,7 +79,7 @@ describe('marketplace.json', () => {
 })
 
 describe('plugin.json', () => {
-  it('is valid JSON, has no version field, and declares userConfig.api_endpoint', () => {
+  it('is valid JSON and has no version field', () => {
     const manifest = readJsonFile<Record<string, unknown>>(
       resolve(PLUGIN_DIR, '.claude-plugin/plugin.json'),
     )
@@ -88,20 +88,6 @@ describe('plugin.json', () => {
     // Commit-SHA versioning: there must be NO `version` field. This is a hard
     // requirement of the platform's distribution model (plan §Decisions).
     expect('version' in manifest).toBe(false)
-
-    const userConfig = manifest.userConfig as
-      | Record<string, { type?: string; title?: unknown; default?: unknown }>
-      | undefined
-    expect(userConfig).toBeDefined()
-    expect(userConfig!.api_endpoint).toBeDefined()
-    expect(userConfig!.api_endpoint!.type).toBe('string')
-    // Claude Code's plugin-manifest validator requires a string `title` for
-    // every userConfig entry; without it `/plugin install` fails before
-    // any component is loaded.
-    expect(typeof userConfig!.api_endpoint!.title).toBe('string')
-    expect((userConfig!.api_endpoint!.title as string).length).toBeGreaterThan(0)
-    expect(typeof userConfig!.api_endpoint!.default).toBe('string')
-    expect((userConfig!.api_endpoint!.default as string).length).toBeGreaterThan(0)
   })
 })
 

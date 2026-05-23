@@ -24,5 +24,6 @@ Token storage: `${CLAUDE_PLUGIN_DATA}/credentials.json` (mode 0600).
 
 ## Configuration
 
-Set `api_endpoint` in your plugin config to point at a custom platform URL.
-Defaults to `https://api.btrmntlab.com`.
+Defaults to `https://api.btrmntlab.com`. Self-hosted deployments can override
+by setting `BTRMNT_API_ENDPOINT` in the shell that runs Claude Code, or by
+passing `--api-endpoint <url>` to any `btrmnt` subcommand.
