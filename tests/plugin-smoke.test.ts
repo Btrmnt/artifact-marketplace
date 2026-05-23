@@ -90,11 +90,16 @@ describe('plugin.json', () => {
     expect('version' in manifest).toBe(false)
 
     const userConfig = manifest.userConfig as
-      | Record<string, { type?: string; default?: unknown }>
+      | Record<string, { type?: string; title?: unknown; default?: unknown }>
       | undefined
     expect(userConfig).toBeDefined()
     expect(userConfig!.api_endpoint).toBeDefined()
     expect(userConfig!.api_endpoint!.type).toBe('string')
+    // Claude Code's plugin-manifest validator requires a string `title` for
+    // every userConfig entry; without it `/plugin install` fails before
+    // any component is loaded.
+    expect(typeof userConfig!.api_endpoint!.title).toBe('string')
+    expect((userConfig!.api_endpoint!.title as string).length).toBeGreaterThan(0)
     expect(typeof userConfig!.api_endpoint!.default).toBe('string')
     expect((userConfig!.api_endpoint!.default as string).length).toBeGreaterThan(0)
   })
