@@ -149,6 +149,13 @@ export class ApiClient {
     ) as Promise<ProjectEnvironment>
   }
 
+  listGrants(slug: string): Promise<Grant[]> {
+    return this.request<Grant[]>(
+      'GET',
+      `/v1/projects/${encodeURIComponent(slug)}/grants`,
+    ) as Promise<Grant[]>
+  }
+
   grant(slug: string, req: CreateGrantRequest): Promise<Grant[]> {
     // OpenAPI default for `env` is "both"; send it explicitly so the api never
     // has to guess.

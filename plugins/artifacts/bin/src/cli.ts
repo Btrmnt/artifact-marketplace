@@ -31,6 +31,7 @@ const COMMANDS: CommandSpec[] = [
   { name: 'promote', description: "Fast-forward a project's prod branch to main and deploy." },
   { name: 'rollback', description: "Roll a project's prod branch back to an explicit historical commit." },
   { name: 'grant', description: 'Grant a user access to a project (test, prod, or both).' },
+  { name: 'grants', description: 'List who has direct viewer access to a project, grouped by email.' },
   { name: 'revoke', description: "Revoke a user's access to a project." },
   { name: 'invite', description: 'Invite a new user into the current tenant.' },
   { name: 'list', description: 'List projects (alias of `project list`).' },
@@ -242,6 +243,16 @@ async function dispatch(name: string, rest: readonly string[]): Promise<number> 
         email,
         ...(slugArg !== undefined ? { slug: slugArg } : {}),
         env,
+        ...optStr(flags, 'api-endpoint', 'apiEndpoint'),
+      })
+      return 0
+    }
+    case 'grants': {
+      const { positional, flags } = parseFlags(rest)
+      const slugArg = positional[0]
+      const { listGrants } = await import('./commands/grants.js')
+      await listGrants({
+        ...(slugArg !== undefined ? { slug: slugArg } : {}),
         ...optStr(flags, 'api-endpoint', 'apiEndpoint'),
       })
       return 0
