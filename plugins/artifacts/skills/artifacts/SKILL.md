@@ -7,8 +7,8 @@ disable-model-invocation: false
 # /artifacts
 
 The user invoked `/artifacts` to do something with the btrmnt artifact
-platform. Read their request, pick the right `btrmnt` subcommand below, run
-it, and interpret the JSON output.
+platform. Read their request, pick the right `btrmnt` subcommand below,
+run it, and interpret the JSON output.
 
 The CLI is the source of truth — never try to do the auth flow, git
 operations, or API calls yourself in markdown. Each `btrmnt` invocation
