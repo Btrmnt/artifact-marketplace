@@ -115,6 +115,6 @@ export async function invite(args: {
   // No token to deliver — CF Access proves the email at next login.
   writeStdout({
     ...result,
-    message: `Invited ${result.user.email}. Tell them to install the plugin and run /artifacts:login.`,
+    message: `Invited ${result.user.email}. Tell them to install the plugin and run /artifacts to sign in.`,
   })
 }
