@@ -5,13 +5,5 @@
     "name": "btrmnt",
     "email": "plugins@btrmnt.ai"
   },
-  "homepage": "https://github.com/btrmnt/artifact-marketplace",
-  "userConfig": {
-    "api_endpoint": {
-      "type": "string",
-      "title": "API endpoint",
-      "default": "https://api.btrmntlab.com",
-      "description": "Platform API URL. Override for self-hosted deployments."
-    }
-  }
+  "homepage": "https://github.com/btrmnt/artifact-marketplace"
 }
