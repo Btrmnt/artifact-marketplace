@@ -1,4 +1,4 @@
-// `btrmnt grant`, `btrmnt revoke`, `btrmnt invite`.
+// `btrmnt grant`, `btrmnt revoke`, `btrmnt invite`, `btrmnt grants`.
 
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -40,6 +40,36 @@ async function resolveSlug(explicit?: string): Promise<string> {
   const slug = slugFromRemote(btrmnt.refs.push)
   if (!slug) throw new Error(`could not parse a slug from ${btrmnt.refs.push}`)
   return slug
+}
+
+export async function listGrants(args: {
+  slug?: string
+  apiEndpoint?: string
+}): Promise<void> {
+  const slug = await resolveSlug(args.slug)
+  const creds = readCredentials()
+  const endpoint = args.apiEndpoint ?? creds.api_endpoint ?? resolveApiEndpoint()
+  const client = new ApiClient(endpoint, creds.token)
+  const grants = await client.listGrants(slug)
+  // Group flat (email, env) rows into one entry per viewer. We preserve the
+  // order rows arrive in (server returns them sorted by email asc) so output
+  // is stable across runs. Within a viewer, envs are sorted test-before-prod
+  // to match how grant/revoke describe scopes elsewhere in the CLI.
+  const order: string[] = []
+  const byEmail = new Map<string, Set<'test' | 'prod'>>()
+  for (const g of grants) {
+    if (!byEmail.has(g.email)) {
+      byEmail.set(g.email, new Set())
+      order.push(g.email)
+    }
+    byEmail.get(g.email)!.add(g.env)
+  }
+  const envOrder = (e: 'test' | 'prod') => (e === 'test' ? 0 : 1)
+  const viewers = order.map((email) => ({
+    email,
+    envs: Array.from(byEmail.get(email)!).sort((a, b) => envOrder(a) - envOrder(b)),
+  }))
+  writeStdout({ slug, viewers })
 }
 
 export async function grant(args: {
@@ -85,6 +115,6 @@ export async function invite(args: {
   // No token to deliver — CF Access proves the email at next login.
   writeStdout({
     ...result,
-    message: `Invited ${result.user.email}. Tell them to install the plugin and run /artifacts:login.`,
+    message: `Invited ${result.user.email}. Tell them to install the plugin and run /artifacts to sign in.`,
   })
 }

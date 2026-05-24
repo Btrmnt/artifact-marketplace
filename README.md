@@ -13,7 +13,7 @@ In Claude Code:
 /plugin install artifacts@artifact-marketplace
 ```
 
-Then say "set up artifacts" in any folder; Claude runs the `/artifacts:login`
+Then say "set up artifacts" in any folder; Claude runs the `/artifacts`
 skill and walks you through the rest.
 
 ## What's inside

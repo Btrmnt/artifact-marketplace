@@ -76,6 +76,17 @@ beforeEach(async () => {
       res.end(JSON.stringify([{ project_id: 'p', env: 'test', email: 'b@x.com' }]))
       return
     }
+    if (req.method === 'GET' && /\/grants$/.test(req.url!)) {
+      res.statusCode = 200
+      res.end(
+        JSON.stringify([
+          { project_id: 'p', email: 'alice@x.com', env: 'prod' },
+          { project_id: 'p', email: 'alice@x.com', env: 'test' },
+          { project_id: 'p', email: 'bob@x.com', env: 'test' },
+        ]),
+      )
+      return
+    }
     if (req.method === 'DELETE' && /\/grants\/[^/]+/.test(req.url!)) {
       res.statusCode = 204
       res.end()
@@ -192,6 +203,36 @@ describe('btrmnt revoke', () => {
     expect(err.error).toMatch(/invalid email/i)
     // And no DELETE call should have hit the server.
     expect(calls.find((c) => c.url.includes('/grants/'))).toBeUndefined()
+  })
+})
+
+describe('btrmnt grants', () => {
+  it('GETs /v1/projects/<slug>/grants and groups by email', async () => {
+    const credsDir = freshTempDir('cpd-')
+    const credsFile = writeCreds(credsDir)
+    const projectDir = await bootstrapProject('viewslug', credsFile)
+    const r = await runCli(['grants'], {
+      BTRMNT_TEST_CREDS_FILE: credsFile,
+      BTRMNT_TEST_CWD: projectDir,
+    })
+    expect(r.code, r.stderr).toBe(0)
+    const list = calls.find((c) => c.method === 'GET' && c.url.endsWith('/grants'))!
+    expect(list.url).toBe('/v1/projects/viewslug/grants')
+    const out = r.json as { slug: string; viewers: { email: string; envs: string[] }[] }
+    expect(out.slug).toBe('viewslug')
+    expect(out.viewers).toEqual([
+      { email: 'alice@x.com', envs: ['test', 'prod'] },
+      { email: 'bob@x.com', envs: ['test'] },
+    ])
+  })
+
+  it('accepts an explicit slug positional', async () => {
+    const credsDir = freshTempDir('cpd-')
+    const credsFile = writeCreds(credsDir)
+    const r = await runCli(['grants', 'someproj'], { BTRMNT_TEST_CREDS_FILE: credsFile })
+    expect(r.code, r.stderr).toBe(0)
+    const list = calls.find((c) => c.method === 'GET' && c.url.endsWith('/grants'))!
+    expect(list.url).toBe('/v1/projects/someproj/grants')
   })
 })
 
