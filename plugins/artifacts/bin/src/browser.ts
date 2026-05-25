@@ -28,7 +28,26 @@ export function openBrowser(url: string): void {
     cmd = 'xdg-open'
     args = [url]
   }
+  // Test seam: force the spawn target to a binary that doesn't exist so
+  // the integration test can reproduce the Cowork/CI failure mode where
+  // the platform opener is absent. Used by tests/login.spec.ts; ignored
+  // outside test runs.
+  if (process.env.BTRMNT_TEST_BROWSER_CMD) {
+    cmd = process.env.BTRMNT_TEST_BROWSER_CMD
+    args = [url]
+  }
   // detached + ignore so the CLI doesn't block on the browser process.
-  const child = spawn(cmd, args, { detached: true, stdio: 'ignore' })
-  child.unref()
+  // Wrap the spawn itself — `child_process.spawn` can synchronously throw on
+  // some platforms when the binary is missing — and attach an `error` listener
+  // so an async ENOENT from `execvp` does not become an uncaught exception
+  // that kills the CLI mid-login. In sandboxed Linux environments (Cowork,
+  // CI runners) `xdg-open` is frequently absent; the device-flow URL is on
+  // stderr already, so silently dropping the open is the right answer.
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // ignore — best-effort UX
+  }
 }
