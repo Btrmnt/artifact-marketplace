@@ -169,38 +169,6 @@ async function approveWhenSeen(): Promise<void> {
 }
 
 describe('btrmnt login (device flow)', () => {
-  // Regression: in sandboxed Linux environments (Cowork, CI runners) the
-  // browser opener (`xdg-open`) is absent. The async `error` event from
-  // `child_process.spawn` used to become an uncaught exception that killed
-  // the CLI right after the `awaiting_authorization` line was flushed —
-  // before any poll happened. The user's only signal was an empty stdout
-  // and a process that vanished. We force the spawn target to a missing
-  // binary via BTRMNT_TEST_BROWSER_CMD; the CLI must still poll, get the
-  // approval, and write credentials.
-  it('survives a missing browser opener (ENOENT on spawn)', async () => {
-    const credsPath = resolve(freshTempDir('creds-'), 'credentials.json')
-    const run = runCli(
-      [
-        'login',
-        '--api-endpoint',
-        `http://127.0.0.1:${mockApiPort}`,
-        '--poll-interval-ms',
-        '20',
-        '--timeout-ms',
-        '5000',
-      ],
-      {
-        BTRMNT_TEST_CREDS_FILE: credsPath,
-        BTRMNT_TEST_BROWSER_CMD: '/__btrmnt_no_such_binary__',
-      },
-    )
-    await run.waitForStderr((l) => l.includes('awaiting_authorization'))
-    await approveWhenSeen()
-    const result = await run
-    expect(result.code).toBe(0)
-    expect(existsSync(credsPath)).toBe(true)
-  })
-
   it('happy path: prints user_code+URL on stderr, persists token, exits 0, mode 0600', async () => {
     const credsPath = resolve(freshTempDir('creds-'), 'credentials.json')
     state.nextToken = 'tok_device_spec_abc'

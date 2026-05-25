@@ -153,17 +153,8 @@ function openBrowser(url) {
     cmd = "xdg-open";
     args = [url];
   }
-  if (process.env.BTRMNT_TEST_BROWSER_CMD) {
-    cmd = process.env.BTRMNT_TEST_BROWSER_CMD;
-    args = [url];
-  }
-  try {
-    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
-    child.on("error", () => {
-    });
-    child.unref();
-  } catch {
-  }
+  const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+  child.unref();
 }
 var init_browser = __esm({
   "src/browser.ts"() {
