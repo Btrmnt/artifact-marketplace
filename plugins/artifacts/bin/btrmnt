@@ -7,7 +7,11 @@
 // build step — so the only way to ship a working CLI is to check in the
 // compiled output. The `verify-dist-fresh` CI job enforces that the
 // committed dist matches src/ on every push to main.
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
 const __dirname = dirname(fileURLToPath(import.meta.url))
-await import(resolve(__dirname, 'dist', 'cli.js'))
+// On Windows, resolve() yields a backslash path like C:\...\dist\cli.js.
+// Node's ESM loader rejects that because it parses `c:` as a URL scheme
+// (ERR_UNSUPPORTED_ESM_URL_SCHEME). pathToFileURL gives us a proper
+// file:// URL that works on every platform.
+await import(pathToFileURL(resolve(__dirname, 'dist', 'cli.js')).href)
