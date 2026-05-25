@@ -1,20 +1,25 @@
-// W2d test: `btrmnt login`
+// W2d test: `btrmnt login` (OAuth 2.0 Device Authorization Grant).
 //
-// We spin up a tiny in-memory mock api that:
-//   - returns a 302 from /auth/start to <cb>?token=...  (the value is the
-//     raw CF Access JWT — CF Access has already authenticated the user)
+// We stand up a small in-memory mock api that implements RFC 8628:
+//
+//   POST /auth/device  -> { device_code, user_code, verification_uri, ...,
+//                           expires_in, interval }
+//   POST /auth/token   -> repeats `authorization_pending` until the test
+//                         flips the record to approved; then 200 with the
+//                         JWT.
 //
 // The CLI must:
-//   - bring up a local HTTP listener on a random ephemeral port
-//   - "open" a browser to <api>/auth/start?cb=http://127.0.0.1:<port>/callback
-//     (in tests we set BTRMNT_TEST_DISABLE_BROWSER=1 so it prints AUTH_URL=<url>
-//     to stderr instead, and the test fetches the URL to drive the dance)
-//   - receive GET /callback?token=... on the local listener
-//   - persist the token to the resolved credentials path mode 0600
-//   - decode the JWT `exp` claim into expires_at when present
+//   - print an `awaiting_authorization` JSON line on stderr containing the
+//     verification URI + user_code (so headless callers can read it)
+//   - try to open the system browser (we set BTRMNT_TEST_DISABLE_BROWSER=1
+//     so the shell-out is a no-op)
+//   - poll /auth/token until success or terminal error
+//   - persist {api_endpoint, token, expires_at} to credentials mode 0600
 //   - print success JSON to stdout, exit 0
 //
-// A timeout (passed as a flag for the test) should produce a clean JSON error.
+// A timeout (--timeout-ms) and a poll interval (--poll-interval-ms) are
+// honoured so the test runs in <1s rather than waiting for the real 2s
+// interval.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -24,22 +29,111 @@ import { freshTempDir, runCli } from './_helpers.js'
 
 let mockApi: Server | null = null
 let mockApiPort = 0
-let mockToken = 'tok_login_spec_abc'
-let lastCallback = ''
+
+interface MockState {
+  /** Persisted device-auth records, keyed by device_code. */
+  records: Map<
+    string,
+    {
+      user_code: string
+      status: 'pending' | 'approved'
+      token: string | null
+      pollsSeen: number
+      slowDownNextPoll: boolean
+    }
+  >
+  /** Token handed out on the next approval. */
+  nextToken: string
+  /** Override returned by POST /auth/device. Useful per-test. */
+  nextInit: Partial<{
+    expires_in: number
+    interval: number
+    user_code: string
+  }>
+}
+
+let state: MockState
+
+function resetState() {
+  state = {
+    records: new Map(),
+    nextToken: 'tok_device_spec_abc',
+    nextInit: {},
+  }
+}
+
+function randomBase64Url(n: number): string {
+  let out = ''
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+  for (let i = 0; i < n; i++) out += chars[Math.floor(Math.random() * chars.length)]
+  return out
+}
 
 beforeEach(async () => {
-  mockApi = createServer((req, res) => {
-    const url = new URL(req.url!, `http://127.0.0.1:${mockApiPort}`)
-    if (url.pathname === '/auth/start') {
-      const cb = url.searchParams.get('cb')!
-      const state = url.searchParams.get('state') ?? ''
-      lastCallback = cb
-      res.statusCode = 302
-      res.setHeader(
-        'Location',
-        `${cb}?token=${encodeURIComponent(mockToken)}&state=${encodeURIComponent(state)}`,
+  resetState()
+  mockApi = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://127.0.0.1:${mockApiPort}`)
+    if (req.method === 'POST' && url.pathname === '/auth/device') {
+      const deviceCode = `dc_${randomBase64Url(24)}`
+      const userCode = state.nextInit.user_code ?? 'ABCD-EFGH'
+      state.records.set(deviceCode, {
+        user_code: userCode,
+        status: 'pending',
+        token: null,
+        pollsSeen: 0,
+        slowDownNextPoll: false,
+      })
+      const expiresIn = state.nextInit.expires_in ?? 600
+      const interval = state.nextInit.interval ?? 2
+      res.statusCode = 200
+      res.setHeader('content-type', 'application/json')
+      res.end(
+        JSON.stringify({
+          device_code: deviceCode,
+          user_code: userCode,
+          verification_uri: `http://127.0.0.1:${mockApiPort}/device`,
+          verification_uri_complete: `http://127.0.0.1:${mockApiPort}/device?user_code=${encodeURIComponent(userCode)}`,
+          expires_in: expiresIn,
+          interval,
+        }),
       )
-      res.end()
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/auth/token') {
+      const chunks: Buffer[] = []
+      for await (const c of req) chunks.push(c as Buffer)
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { device_code?: string }
+      const rec = body.device_code ? state.records.get(body.device_code) : undefined
+      if (!rec) {
+        res.statusCode = 400
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ error: 'expired_token' }))
+        return
+      }
+      rec.pollsSeen += 1
+      if (rec.slowDownNextPoll) {
+        rec.slowDownNextPoll = false
+        res.statusCode = 400
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ error: 'slow_down', interval: 1 }))
+        return
+      }
+      if (rec.status === 'pending') {
+        res.statusCode = 400
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ error: 'authorization_pending' }))
+        return
+      }
+      // Approved.
+      res.statusCode = 200
+      res.setHeader('content-type', 'application/json')
+      res.end(
+        JSON.stringify({
+          token: rec.token,
+          expires_at: '2099-01-01T00:00:00.000Z',
+          api_endpoint: `http://127.0.0.1:${mockApiPort}`,
+        }),
+      )
       return
     }
     res.statusCode = 404
@@ -47,8 +141,6 @@ beforeEach(async () => {
   })
   await new Promise<void>((r) => mockApi!.listen(0, '127.0.0.1', () => r()))
   mockApiPort = (mockApi!.address() as { port: number }).port
-  lastCallback = ''
-  mockToken = 'tok_login_spec_abc'
 })
 
 afterEach(async () => {
@@ -56,37 +148,60 @@ afterEach(async () => {
   mockApi = null
 })
 
-/** Build a minimal unsigned JWT with the given `exp` claim (seconds since epoch). */
-function fakeJwt(exp: number): string {
-  const b64url = (s: string) =>
-    Buffer.from(s).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
-  const header = b64url(JSON.stringify({ alg: 'none', typ: 'JWT' }))
-  const payload = b64url(JSON.stringify({ exp }))
-  return `${header}.${payload}.`
+/**
+ * Wait for the mock api to see at least one device_code and approve it with
+ * `state.nextToken`. Polls every 5ms with a short ceiling so the test
+ * doesn't hang if the CLI hasn't actually started yet.
+ */
+async function approveWhenSeen(): Promise<void> {
+  const deadline = Date.now() + 2000
+  while (Date.now() < deadline) {
+    const entries = [...state.records.entries()]
+    if (entries.length > 0) {
+      const [, rec] = entries[0]!
+      rec.status = 'approved'
+      rec.token = state.nextToken
+      return
+    }
+    await new Promise((r) => setTimeout(r, 5))
+  }
+  throw new Error('mock api never saw a /auth/device request')
 }
 
-describe('btrmnt login', () => {
-  it('happy path: persists token, exits 0, mode 0600', async () => {
+describe('btrmnt login (device flow)', () => {
+  it('happy path: prints user_code+URL on stderr, persists token, exits 0, mode 0600', async () => {
     const credsPath = resolve(freshTempDir('creds-'), 'credentials.json')
+    state.nextToken = 'tok_device_spec_abc'
     const run = runCli(
-      ['login', '--api-endpoint', `http://127.0.0.1:${mockApiPort}`],
+      [
+        'login',
+        '--api-endpoint',
+        `http://127.0.0.1:${mockApiPort}`,
+        '--poll-interval-ms',
+        '20',
+        '--timeout-ms',
+        '5000',
+      ],
       { BTRMNT_TEST_CREDS_FILE: credsPath, BTRMNT_TEST_DISABLE_BROWSER: '1' },
     )
-    const line = await run.waitForStderr((l) => l.includes('AUTH_URL='))
-    const authUrl = line.split('AUTH_URL=')[1]!.trim()
-    // start URL carries an opaque base64url-ish state nonce (CSRF protection).
-    expect(authUrl).toMatch(
-      /^http:\/\/127\.0\.0\.1:\d+\/auth\/start\?cb=http%3A%2F%2F127\.0\.0\.1%3A\d+%2Fcallback&state=[A-Za-z0-9_-]+$/,
-    )
-    // simulate browser
-    const startResp = await fetch(authUrl, { redirect: 'manual' })
-    expect(startResp.status).toBe(302)
-    const cbUrl = startResp.headers.get('location')!
-    const cbResp = await fetch(cbUrl)
-    expect(cbResp.status).toBe(200)
-    const body = await cbResp.text()
-    // The success page should contain a hint that the tab can be closed.
-    expect(body).toMatch(/close.*tab|close.*window|authenticated/i)
+
+    // The CLI emits an `awaiting_authorization` JSON line on stderr right
+    // after /auth/device. Wait for it before flipping the record to
+    // approved — that proves the CLI got far enough to display the code.
+    const awaitingLine = await run.waitForStderr((l) => l.includes('awaiting_authorization'))
+    const awaiting = JSON.parse(awaitingLine) as {
+      status: string
+      verification_uri: string
+      user_code: string
+      hint: string
+    }
+    expect(awaiting.status).toBe('awaiting_authorization')
+    expect(awaiting.user_code).toBe('ABCD-EFGH')
+    expect(awaiting.verification_uri).toBe(`http://127.0.0.1:${mockApiPort}/device`)
+    expect(awaiting.hint).toContain('ABCD-EFGH')
+
+    // Simulate the user approving in the browser.
+    await approveWhenSeen()
 
     const result = await run
     expect(result.code).toBe(0)
@@ -99,73 +214,122 @@ describe('btrmnt login', () => {
       expires_at: string | null
     }
     expect(contents.api_endpoint).toBe(`http://127.0.0.1:${mockApiPort}`)
-    expect(contents.token).toBe('tok_login_spec_abc')
-    // Opaque token (not a JWT) -> expires_at is null, not a crash.
-    expect(contents.expires_at).toBeNull()
-    // success JSON to stdout
+    expect(contents.token).toBe('tok_device_spec_abc')
+    expect(contents.expires_at).toBeNull() // opaque token, not a real JWT
     const out = result.json as { ok?: boolean; credentials_path?: string }
     expect(out.ok).toBe(true)
     expect(out.credentials_path).toBe(credsPath)
   })
 
-  it('decodes expires_at from the JWT exp claim when present', async () => {
+  it('decodes expires_at from the JWT exp claim when the token is a real JWT', async () => {
     const exp = Math.floor(Date.UTC(2099, 0, 1) / 1000)
-    mockToken = fakeJwt(exp)
+    const b64url = (s: string) =>
+      Buffer.from(s).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const header = b64url(JSON.stringify({ alg: 'none', typ: 'JWT' }))
+    const payload = b64url(JSON.stringify({ exp }))
+    state.nextToken = `${header}.${payload}.`
     const credsPath = resolve(freshTempDir('creds-'), 'credentials.json')
     const run = runCli(
-      ['login', '--api-endpoint', `http://127.0.0.1:${mockApiPort}`],
+      [
+        'login',
+        '--api-endpoint',
+        `http://127.0.0.1:${mockApiPort}`,
+        '--poll-interval-ms',
+        '20',
+        '--timeout-ms',
+        '5000',
+      ],
       { BTRMNT_TEST_CREDS_FILE: credsPath, BTRMNT_TEST_DISABLE_BROWSER: '1' },
     )
-    const line = await run.waitForStderr((l) => l.includes('AUTH_URL='))
-    const authUrl = line.split('AUTH_URL=')[1]!.trim()
-    const startResp = await fetch(authUrl, { redirect: 'manual' })
-    const cbUrl = startResp.headers.get('location')!
-    await fetch(cbUrl)
+    await run.waitForStderr((l) => l.includes('awaiting_authorization'))
+    await approveWhenSeen()
     const result = await run
     expect(result.code).toBe(0)
     const contents = JSON.parse(readFileSync(credsPath, 'utf-8')) as {
       token: string
       expires_at: string | null
     }
-    expect(contents.token).toBe(mockToken)
+    expect(contents.token).toBe(state.nextToken)
     expect(contents.expires_at).toBe(new Date(exp * 1000).toISOString())
   })
 
-  it('rejects a callback whose state does not match', async () => {
+  it('backs off on slow_down then succeeds when approved', async () => {
+    state.nextInit = { interval: 1 }
     const credsPath = resolve(freshTempDir('creds-'), 'credentials.json')
     const run = runCli(
-      ['login', '--api-endpoint', `http://127.0.0.1:${mockApiPort}`, '--timeout-ms', '2000'],
+      [
+        'login',
+        '--api-endpoint',
+        `http://127.0.0.1:${mockApiPort}`,
+        '--poll-interval-ms',
+        '20',
+        '--timeout-ms',
+        '5000',
+      ],
       { BTRMNT_TEST_CREDS_FILE: credsPath, BTRMNT_TEST_DISABLE_BROWSER: '1' },
     )
-    const line = await run.waitForStderr((l) => l.includes('AUTH_URL='))
-    const authUrl = line.split('AUTH_URL=')[1]!.trim()
-    // Bypass /auth/start — hit the loopback callback directly with a token
-    // and a state value that has nothing to do with the one the CLI minted.
-    // This simulates a malicious local-origin (e.g. a tab the user happens
-    // to have open) trying to inject its own JWT into the credentials file.
-    const cbBase = new URL(authUrl).searchParams.get('cb')!
-    const forged = new URL(cbBase)
-    forged.searchParams.set('token', 'attacker_jwt')
-    forged.searchParams.set('state', 'wrong-state-value')
-    const cbResp = await fetch(forged.toString())
-    expect(cbResp.status).toBe(400)
-
+    await run.waitForStderr((l) => l.includes('awaiting_authorization'))
+    // Trip slow_down on the *first* poll the CLI makes.
+    const deadline = Date.now() + 1000
+    while (Date.now() < deadline) {
+      const entries = [...state.records.entries()]
+      if (entries.length) {
+        entries[0]![1].slowDownNextPoll = true
+        break
+      }
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    await approveWhenSeen()
     const result = await run
-    expect(result.code).not.toBe(0)
-    const err = JSON.parse(result.stderr.trim().split('\n').pop()!) as { error: string }
-    expect(err.error).toMatch(/state/i)
-    // Credentials file must NOT have been written.
-    expect(existsSync(credsPath)).toBe(false)
+    expect(result.code).toBe(0)
+    expect(existsSync(credsPath)).toBe(true)
   })
 
-  it('times out cleanly when no callback arrives', async () => {
+  it('fails fast on terminal errors (expired_token) without writing credentials', async () => {
+    const credsPath = resolve(freshTempDir('creds-'), 'credentials.json')
+    const run = runCli(
+      [
+        'login',
+        '--api-endpoint',
+        `http://127.0.0.1:${mockApiPort}`,
+        '--poll-interval-ms',
+        '20',
+        '--timeout-ms',
+        '5000',
+      ],
+      { BTRMNT_TEST_CREDS_FILE: credsPath, BTRMNT_TEST_DISABLE_BROWSER: '1' },
+    )
+    // Wait for the CLI to print the awaiting line — proves it called
+    // /auth/device successfully. Then wipe the record so the first poll
+    // gets `expired_token`. The mock returns that for any unknown
+    // device_code, which simulates the server having garbage-collected
+    // the record between the call and the first poll.
+    await run.waitForStderr((l) => l.includes('awaiting_authorization'))
+    state.records.clear()
+    const result = await run
+    expect(result.code).not.toBe(0)
+    expect(existsSync(credsPath)).toBe(false)
+    const err = JSON.parse(result.stderr.trim().split('\n').pop()!) as { error: string }
+    expect(err.error).toMatch(/expired_token/)
+  })
+
+  it('times out cleanly when the user never approves', async () => {
     const credsPath = resolve(freshTempDir('creds-'), 'credentials.json')
     const result = await runCli(
-      ['login', '--api-endpoint', `http://127.0.0.1:${mockApiPort}`, '--timeout-ms', '300'],
+      [
+        'login',
+        '--api-endpoint',
+        `http://127.0.0.1:${mockApiPort}`,
+        '--poll-interval-ms',
+        '20',
+        '--timeout-ms',
+        '300',
+      ],
       { BTRMNT_TEST_CREDS_FILE: credsPath, BTRMNT_TEST_DISABLE_BROWSER: '1' },
     )
     expect(result.code).not.toBe(0)
+    expect(existsSync(credsPath)).toBe(false)
     const err = JSON.parse(result.stderr.trim().split('\n').pop()!) as { error: string }
-    expect(err.error).toMatch(/timeout|timed out/i)
+    expect(err.error).toMatch(/timed out|timeout/i)
   })
 })

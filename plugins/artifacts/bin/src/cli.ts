@@ -140,10 +140,16 @@ async function dispatch(name: string, rest: readonly string[]): Promise<number> 
     case 'login': {
       const { flags } = parseFlags(rest)
       const { login } = await import('./commands/login.js')
-      const loginOpts: { apiEndpoint?: string; timeoutMs?: number } = {}
+      const loginOpts: {
+        apiEndpoint?: string
+        timeoutMs?: number
+        pollIntervalMs?: number
+      } = {}
       if (typeof flags['api-endpoint'] === 'string') loginOpts.apiEndpoint = flags['api-endpoint']
       if (typeof flags['timeout-ms'] === 'string')
         loginOpts.timeoutMs = Number.parseInt(flags['timeout-ms'], 10)
+      if (typeof flags['poll-interval-ms'] === 'string')
+        loginOpts.pollIntervalMs = Number.parseInt(flags['poll-interval-ms'], 10)
       await login(loginOpts)
       return 0
     }
