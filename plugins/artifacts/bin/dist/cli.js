@@ -144,8 +144,8 @@ function resolveOpenBrowserCommand(url, platform) {
   if (platform === "darwin") return { cmd: "open", args: [url] };
   if (platform === "win32") {
     return {
-      cmd: "powershell",
-      args: ["-NoProfile", "-Command", "Start-Process", url]
+      cmd: "rundll32",
+      args: ["url.dll,FileProtocolHandler", url]
     };
   }
   return { cmd: "xdg-open", args: [url] };

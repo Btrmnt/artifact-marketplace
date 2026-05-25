@@ -29,13 +29,16 @@ describe('resolveOpenBrowserCommand', () => {
     expect(r.args).toEqual([URL_WITH_AMPERSAND])
   })
 
-  it('win32 uses powershell Start-Process (NOT cmd /c start)', () => {
+  it('win32 uses rundll32 FileProtocolHandler (no shell parser)', () => {
     const r = resolveOpenBrowserCommand(URL_WITH_AMPERSAND, 'win32')
-    // cmd.exe must not appear anywhere — it would parse `&` in the URL
-    // as a command separator and chop off `&state=...`.
+    // Neither cmd.exe nor powershell may appear — both treat `&` as a
+    // statement separator and would chop off `&state=...` before the
+    // URL reached the browser, breaking the OAuth state check.
     expect(r.cmd).not.toBe('cmd')
-    expect(r.cmd).toBe('powershell')
-    expect(r.args).toContain('Start-Process')
+    expect(r.cmd).not.toBe('powershell')
+    expect(r.cmd).not.toBe('pwsh')
+    expect(r.cmd).toBe('rundll32')
+    expect(r.args[0]).toBe('url.dll,FileProtocolHandler')
     // The URL must pass through verbatim, including the `&` and the
     // state token after it. This is the actual regression guard.
     expect(r.args).toContain(URL_WITH_AMPERSAND)

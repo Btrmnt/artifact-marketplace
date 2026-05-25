@@ -18,11 +18,13 @@ import { writeStderrJson, writeStderrRaw } from './output.js'
  * browser. Exported so the platform branching is unit-testable without
  * actually spawning a child process.
  *
- * Windows note: we deliberately AVOID `cmd /c start "" <url>`. cmd.exe
- * treats `&` as a command separator and will truncate the URL at the
- * first `&` (e.g. `?cb=...&state=...` → loses `state=...`), which
- * silently breaks the OAuth callback's CSRF check. Using PowerShell's
- * `Start-Process` sidesteps cmd's metacharacter parsing entirely.
+ * Windows note: we deliberately AVOID anything that goes through a
+ * shell parser — both cmd.exe (`start`) and PowerShell (`Start-Process
+ * -Command`) treat `&` as a statement separator and will truncate the
+ * URL at the first `&` (e.g. `?cb=...&state=...` loses `state=...`),
+ * silently breaking the OAuth callback's CSRF check. `rundll32` is a
+ * plain executable: argv reaches FileProtocolHandler verbatim and is
+ * handed to ShellExecute as a single string, so `&` survives.
  */
 export function resolveOpenBrowserCommand(
   url: string,
@@ -31,8 +33,8 @@ export function resolveOpenBrowserCommand(
   if (platform === 'darwin') return { cmd: 'open', args: [url] }
   if (platform === 'win32') {
     return {
-      cmd: 'powershell',
-      args: ['-NoProfile', '-Command', 'Start-Process', url],
+      cmd: 'rundll32',
+      args: ['url.dll,FileProtocolHandler', url],
     }
   }
   return { cmd: 'xdg-open', args: [url] }
