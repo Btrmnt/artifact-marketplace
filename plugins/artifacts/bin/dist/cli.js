@@ -141,6 +141,11 @@ var init_config = __esm({
 // src/browser.ts
 import { spawn } from "node:child_process";
 function openBrowser(url) {
+  writeStderrJson({
+    status: "awaiting_callback",
+    auth_url: url,
+    hint: "If your browser did not open automatically, visit this URL to complete sign-in."
+  });
   if (process.env.BTRMNT_TEST_DISABLE_BROWSER === "1") {
     writeStderrRaw(`AUTH_URL=${url}`);
     return;
