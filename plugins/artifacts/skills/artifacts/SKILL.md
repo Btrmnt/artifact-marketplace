@@ -67,62 +67,33 @@ URL itself is the viewable URL.
 
 ### `login`
 
-> **You MUST run `btrmnt login` in the background.** It blocks for up to
-> 10 minutes waiting for the user to approve in a browser. A foreground
-> Bash call will appear to hang and time out, and the user never sees
-> the URL they need to visit. Always launch it like this:
->
-> ```
-> Bash(command="btrmnt login", run_in_background=true)
-> ```
+`btrmnt login` blocks for up to 5 minutes while it waits for a browser
+callback. The CLI also tries to open the user's default browser to the
+auth URL — but that fails silently in headless / remote / Claude Code
+shells where no display is available.
 
-> **Cowork sandbox users: allowlist the domain first.** If `btrmnt login`
-> exits immediately with `{"error":"fetch failed"}`, the Cowork sandbox is
-> blocking outbound traffic to `api.btrmntlab.com`. Open Cowork settings
-> → **Domain allowlist** and either select **All domains** or add
-> `*.btrmntlab.com` (and `*.cloudflareaccess.com` for the SSO redirect).
-> The CLI has no network — there's nothing to retry until the allowlist
-> is fixed.
+**Always** run login in the background so you can read its stderr while
+it waits:
 
-`btrmnt login` uses the OAuth 2.0 Device Authorization Grant (RFC 8628).
-It needs only outbound HTTPS — no loopback listener, no exposed local
-port — so it works in headless / sandbox / remote-shell environments
-(Claude Code, CI runners, SSH sessions).
+```
+Bash(command="btrmnt login", run_in_background=true)
+```
 
-**Step-by-step:**
+Within a second or two of starting, the CLI emits a JSON line on stderr:
 
-1. **Launch in the background** with `run_in_background=true`. Capture
-   the returned `shellId`.
-2. **Wait for the awaiting line on stderr.** Within a second of starting,
-   the CLI emits a JSON line like this on stderr:
-   ```json
-   {
-     "status":"awaiting_authorization",
-     "verification_uri":"https://api.btrmntlab.com/device",
-     "verification_uri_complete":"https://api.btrmntlab.com/device?user_code=ABCD-EFGH",
-     "user_code":"ABCD-EFGH",
-     "expires_in":600,
-     "interval":2,
-     "hint":"Open ... in your browser to authorise this device. If asked for a code, enter ABCD-EFGH."
-   }
-   ```
-   Read it with `BashOutput(shellId)` or `Monitor`.
-3. **Surface the URL + code to the user verbatim.** Show
-   `verification_uri_complete` (one-click URL with code pre-filled) AND
-   `user_code` (so users on a different device can still complete the
-   flow). Do not paraphrase — the dashes and case in `user_code` matter.
-4. **Wait for the background command to exit.** Once the user approves
-   in their browser, the next poll succeeds and the process exits 0
-   with `{ ok, api_endpoint, credentials_path }` on stdout. On failure
-   it prints `{ error }` on stderr with a non-zero exit code; on
-   timeout, suggest re-running `btrmnt login`.
-5. **Confirm identity** with `btrmnt whoami` so the user sees who they
-   logged in as.
+```json
+{"status":"awaiting_callback","auth_url":"https://api.btrmntlab.com/auth/start?cb=...&state=...","hint":"..."}
+```
 
-The CLI tries to open the user's default browser via `open` /
-`xdg-open` / `start`, but in any environment where Claude Code is
-running that's silently best-effort and won't help — which is exactly
-why you must read the URL out of stderr yourself.
+Read that line (via Monitor or BashOutput on the background shell), grab
+the `auth_url`, and **surface it to the user verbatim** — they may need
+to paste it into their browser manually. Then wait for the background
+command to exit. On success the CLI prints `{ ok, api_endpoint,
+credentials_path }` to stdout; on failure it prints `{ error }` to
+stderr with a non-zero exit code.
+
+After success, confirm the logged-in email + tenant by running
+`btrmnt whoami`.
 
 ### `whoami`
 
