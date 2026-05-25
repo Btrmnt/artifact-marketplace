@@ -5,6 +5,10 @@
 //      to a temp dir).
 //   3. File mode is 0600 after `btrmnt login`. The credentials file is
 //      written using fs.writeFile + chmod 0600.
+//
+// The login flow is the OAuth 2.0 Device Authorization Grant. We stand up a
+// tiny mock api that immediately approves the device on the first poll, so
+// the suite reaches the credentials-write path quickly.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -18,17 +22,35 @@ let mockApiPort = 0
 let mockApiToken = 'tok_credentials_spec'
 
 beforeEach(async () => {
-  mockApi = createServer((req, res) => {
-    const url = new URL(req.url!, `http://127.0.0.1:${mockApiPort}`)
-    if (url.pathname === '/auth/start') {
-      const cb = url.searchParams.get('cb')!
-      const state = url.searchParams.get('state') ?? ''
-      res.statusCode = 302
-      res.setHeader(
-        'Location',
-        `${cb}?token=${encodeURIComponent(mockApiToken)}&state=${encodeURIComponent(state)}`,
+  mockApi = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://127.0.0.1:${mockApiPort}`)
+    if (req.method === 'POST' && url.pathname === '/auth/device') {
+      res.statusCode = 200
+      res.setHeader('content-type', 'application/json')
+      res.end(
+        JSON.stringify({
+          device_code: 'dc_creds_spec',
+          user_code: 'ABCD-EFGH',
+          verification_uri: `http://127.0.0.1:${mockApiPort}/device`,
+          verification_uri_complete: `http://127.0.0.1:${mockApiPort}/device?user_code=ABCD-EFGH`,
+          expires_in: 600,
+          interval: 1,
+        }),
       )
-      res.end()
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/auth/token') {
+      // Always approve immediately — these specs care about the
+      // credentials-write path, not the polling state machine.
+      res.statusCode = 200
+      res.setHeader('content-type', 'application/json')
+      res.end(
+        JSON.stringify({
+          token: mockApiToken,
+          expires_at: '2099-01-01T00:00:00.000Z',
+          api_endpoint: `http://127.0.0.1:${mockApiPort}`,
+        }),
+      )
       return
     }
     res.statusCode = 404
@@ -36,6 +58,7 @@ beforeEach(async () => {
   })
   await new Promise<void>((r) => mockApi!.listen(0, '127.0.0.1', () => r()))
   mockApiPort = (mockApi!.address() as { port: number }).port
+  mockApiToken = 'tok_credentials_spec'
 })
 
 afterEach(async () => {
@@ -44,20 +67,22 @@ afterEach(async () => {
 })
 
 async function driveLogin(env: NodeJS.ProcessEnv): Promise<{ code: number; credsPath: string }> {
-  const run = runCli(
-    ['login', '--api-endpoint', `http://127.0.0.1:${mockApiPort}`],
+  const result = await runCli(
+    [
+      'login',
+      '--api-endpoint',
+      `http://127.0.0.1:${mockApiPort}`,
+      '--poll-interval-ms',
+      '20',
+      '--timeout-ms',
+      '5000',
+    ],
     { ...env, BTRMNT_TEST_DISABLE_BROWSER: '1' },
   )
-  // Wait for the CLI to print its auth-start URL on stderr.
-  const line = await run.waitForStderr((l) => l.includes('AUTH_URL='))
-  const authUrl = line.split('AUTH_URL=')[1]!.trim()
-  // Simulate the browser: GET the auth-start URL and follow the redirect.
-  const startResp = await fetch(authUrl, { redirect: 'manual' })
-  expect(startResp.status).toBe(302)
-  const cbUrl = startResp.headers.get('location')!
-  await fetch(cbUrl)
-  const result = await run
-  return { code: result.code, credsPath: result.json && (result.json as any).credentials_path }
+  return {
+    code: result.code,
+    credsPath: result.json && (result.json as { credentials_path?: string }).credentials_path!,
+  }
 }
 
 describe('credentials file location', () => {
