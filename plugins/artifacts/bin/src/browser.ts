@@ -13,6 +13,31 @@
 import { spawn } from 'node:child_process'
 import { writeStderrJson, writeStderrRaw } from './output.js'
 
+/**
+ * Pick the (cmd, args) pair used to hand a URL off to the OS default
+ * browser. Exported so the platform branching is unit-testable without
+ * actually spawning a child process.
+ *
+ * Windows note: we deliberately AVOID `cmd /c start "" <url>`. cmd.exe
+ * treats `&` as a command separator and will truncate the URL at the
+ * first `&` (e.g. `?cb=...&state=...` → loses `state=...`), which
+ * silently breaks the OAuth callback's CSRF check. Using PowerShell's
+ * `Start-Process` sidesteps cmd's metacharacter parsing entirely.
+ */
+export function resolveOpenBrowserCommand(
+  url: string,
+  platform: NodeJS.Platform,
+): { cmd: string; args: string[] } {
+  if (platform === 'darwin') return { cmd: 'open', args: [url] }
+  if (platform === 'win32') {
+    return {
+      cmd: 'powershell',
+      args: ['-NoProfile', '-Command', 'Start-Process', url],
+    }
+  }
+  return { cmd: 'xdg-open', args: [url] }
+}
+
 export function openBrowser(url: string): void {
   // Always announce the URL on stderr as JSON so non-interactive callers
   // (Claude Code, CI, SSH) can surface it. Production code reads this
@@ -27,19 +52,7 @@ export function openBrowser(url: string): void {
     writeStderrRaw(`AUTH_URL=${url}`)
     return
   }
-  const platform = process.platform
-  let cmd: string
-  let args: string[]
-  if (platform === 'darwin') {
-    cmd = 'open'
-    args = [url]
-  } else if (platform === 'win32') {
-    cmd = 'cmd'
-    args = ['/c', 'start', '""', url]
-  } else {
-    cmd = 'xdg-open'
-    args = [url]
-  }
+  const { cmd, args } = resolveOpenBrowserCommand(url, process.platform)
   // detached + ignore so the CLI doesn't block on the browser process.
   // Wrap the spawn itself — `child_process.spawn` can synchronously throw on
   // some platforms when the binary is missing — and attach an `error` listener

@@ -140,6 +140,16 @@ var init_config = __esm({
 
 // src/browser.ts
 import { spawn } from "node:child_process";
+function resolveOpenBrowserCommand(url, platform) {
+  if (platform === "darwin") return { cmd: "open", args: [url] };
+  if (platform === "win32") {
+    return {
+      cmd: "powershell",
+      args: ["-NoProfile", "-Command", "Start-Process", url]
+    };
+  }
+  return { cmd: "xdg-open", args: [url] };
+}
 function openBrowser(url) {
   writeStderrJson({
     status: "awaiting_callback",
@@ -150,19 +160,7 @@ function openBrowser(url) {
     writeStderrRaw(`AUTH_URL=${url}`);
     return;
   }
-  const platform = process.platform;
-  let cmd;
-  let args;
-  if (platform === "darwin") {
-    cmd = "open";
-    args = [url];
-  } else if (platform === "win32") {
-    cmd = "cmd";
-    args = ["/c", "start", '""', url];
-  } else {
-    cmd = "xdg-open";
-    args = [url];
-  }
+  const { cmd, args } = resolveOpenBrowserCommand(url, process.platform);
   try {
     const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
     child.on("error", () => {
