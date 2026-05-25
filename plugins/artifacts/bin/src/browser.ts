@@ -41,6 +41,18 @@ export function openBrowser(url: string): void {
     args = [url]
   }
   // detached + ignore so the CLI doesn't block on the browser process.
-  const child = spawn(cmd, args, { detached: true, stdio: 'ignore' })
-  child.unref()
+  // Wrap the spawn itself — `child_process.spawn` can synchronously throw on
+  // some platforms when the binary is missing — and attach an `error` listener
+  // so an async ENOENT from `execvp` does not become an uncaught exception
+  // that kills the CLI mid-login. In sandboxed Linux environments (CI
+  // runners, minimal Docker images) `xdg-open` is frequently absent; the
+  // auth URL is on stderr already, so silently dropping the open is the
+  // right answer.
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // ignore — best-effort UX
+  }
 }

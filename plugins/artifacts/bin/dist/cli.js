@@ -163,8 +163,13 @@ function openBrowser(url) {
     cmd = "xdg-open";
     args = [url];
   }
-  const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
-  child.unref();
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.on("error", () => {
+    });
+    child.unref();
+  } catch {
+  }
 }
 var init_browser = __esm({
   "src/browser.ts"() {
