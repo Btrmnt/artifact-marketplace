@@ -67,9 +67,33 @@ URL itself is the viewable URL.
 
 ### `login`
 
-Run `btrmnt login`. If a URL is returned, surface it so the user can
-copy/paste in case their browser didn't open automatically. On success,
-confirm the logged-in email + tenant. On failure, show the error verbatim.
+`btrmnt login` blocks for up to 5 minutes while it waits for a browser
+callback. The CLI also tries to open the user's default browser to the
+auth URL — but that fails silently in headless / remote / Claude Code
+shells where no display is available.
+
+**Always** run login in the background so you can read its stderr while
+it waits:
+
+```
+Bash(command="btrmnt login", run_in_background=true)
+```
+
+Within a second or two of starting, the CLI emits a JSON line on stderr:
+
+```json
+{"status":"awaiting_callback","auth_url":"https://api.btrmntlab.com/auth/start?cb=...&state=...","hint":"..."}
+```
+
+Read that line (via Monitor or BashOutput on the background shell), grab
+the `auth_url`, and **surface it to the user verbatim** — they may need
+to paste it into their browser manually. Then wait for the background
+command to exit. On success the CLI prints `{ ok, api_endpoint,
+credentials_path }` to stdout; on failure it prints `{ error }` to
+stderr with a non-zero exit code.
+
+After success, confirm the logged-in email + tenant by running
+`btrmnt whoami`.
 
 ### `whoami`
 
