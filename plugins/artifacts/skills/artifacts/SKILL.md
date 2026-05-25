@@ -76,6 +76,14 @@ URL itself is the viewable URL.
 > Bash(command="btrmnt login", run_in_background=true)
 > ```
 
+> **Cowork sandbox users: allowlist the domain first.** If `btrmnt login`
+> exits immediately with `{"error":"fetch failed"}`, the Cowork sandbox is
+> blocking outbound traffic to `api.btrmntlab.com`. Open Cowork settings
+> → **Domain allowlist** and either select **All domains** or add
+> `*.btrmntlab.com` (and `*.cloudflareaccess.com` for the SSO redirect).
+> The CLI has no network — there's nothing to retry until the allowlist
+> is fixed.
+
 `btrmnt login` uses the OAuth 2.0 Device Authorization Grant (RFC 8628).
 It needs only outbound HTTPS — no loopback listener, no exposed local
 port — so it works in headless / sandbox / remote-shell environments
