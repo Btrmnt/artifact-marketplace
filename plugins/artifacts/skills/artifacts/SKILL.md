@@ -67,46 +67,30 @@ URL itself is the viewable URL.
 
 ### `login`
 
-`btrmnt login` uses the OAuth 2.0 Device Authorization Grant (RFC 8628).
-It needs only outbound HTTPS — no loopback listener, no exposed local
-port — so it works in headless / sandbox / remote-shell environments
-(Claude Code, CI runners, SSH sessions).
+`btrmnt login` blocks for up to 5 minutes while it waits for a browser
+callback. The CLI also tries to open the user's default browser to the
+auth URL — but that fails silently in headless / remote / Claude Code
+shells where no display is available.
 
-The flow blocks for up to 10 minutes waiting for the user to approve in
-a browser, so **always** run it in the background:
+**Always** run login in the background so you can read its stderr while
+it waits:
 
 ```
 Bash(command="btrmnt login", run_in_background=true)
 ```
 
-Within a second of starting, the CLI emits a JSON line on stderr:
+Within a second or two of starting, the CLI emits a JSON line on stderr:
 
 ```json
-{
-  "status":"awaiting_authorization",
-  "verification_uri":"https://api.btrmntlab.com/device",
-  "verification_uri_complete":"https://api.btrmntlab.com/device?user_code=ABCD-EFGH",
-  "user_code":"ABCD-EFGH",
-  "expires_in":600,
-  "interval":2,
-  "hint":"Open ... in your browser to authorise this device. If asked for a code, enter ABCD-EFGH."
-}
+{"status":"awaiting_callback","auth_url":"https://api.btrmntlab.com/auth/start?cb=...&state=...","hint":"..."}
 ```
 
-Read that line (via Monitor or BashOutput on the background shell) and
-**surface both the `verification_uri_complete` URL and the `user_code`
-to the user verbatim**. The URL pre-fills the code, so a single click
-is enough — but the standalone code matters for users on a different
-device than the one running Claude Code.
-
-The CLI tries to open the user's default browser automatically, but
-that's silently best-effort — in any environment where Claude Code is
-running, it won't help.
-
-After the user approves in their browser, the CLI's next poll succeeds
-and it prints `{ ok, api_endpoint, credentials_path }` on stdout, exit
-0. On failure it prints `{ error }` on stderr with a non-zero exit code.
-On timeout the error message says to re-run `btrmnt login`.
+Read that line (via Monitor or BashOutput on the background shell), grab
+the `auth_url`, and **surface it to the user verbatim** — they may need
+to paste it into their browser manually. Then wait for the background
+command to exit. On success the CLI prints `{ ok, api_endpoint,
+credentials_path }` to stdout; on failure it prints `{ error }` to
+stderr with a non-zero exit code.
 
 After success, confirm the logged-in email + tenant by running
 `btrmnt whoami`.

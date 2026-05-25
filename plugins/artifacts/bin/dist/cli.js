@@ -47,6 +47,10 @@ function writeStderrJson(value) {
   process.stderr.write(`${JSON.stringify(value)}
 `);
 }
+function writeStderrRaw(line) {
+  process.stderr.write(`${line}
+`);
+}
 var init_output = __esm({
   "src/output.ts"() {
     "use strict";
@@ -137,7 +141,13 @@ var init_config = __esm({
 // src/browser.ts
 import { spawn } from "node:child_process";
 function openBrowser(url) {
+  writeStderrJson({
+    status: "awaiting_callback",
+    auth_url: url,
+    hint: "If your browser did not open automatically, visit this URL to complete sign-in."
+  });
   if (process.env.BTRMNT_TEST_DISABLE_BROWSER === "1") {
+    writeStderrRaw(`AUTH_URL=${url}`);
     return;
   }
   const platform = process.platform;
@@ -159,6 +169,7 @@ function openBrowser(url) {
 var init_browser = __esm({
   "src/browser.ts"() {
     "use strict";
+    init_output();
   }
 });
 
@@ -249,6 +260,8 @@ __export(login_exports, {
   expiresAtFromJwt: () => expiresAtFromJwt,
   login: () => login
 });
+import { randomBytes as randomBytes2, timingSafeEqual } from "node:crypto";
+import { createServer } from "node:http";
 function expiresAtFromJwt(token) {
   const parts = token.split(".");
   if (parts.length < 2) return null;
@@ -264,80 +277,77 @@ function expiresAtFromJwt(token) {
     return null;
   }
 }
-function sleep(ms) {
-  return new Promise((r2) => setTimeout(r2, ms));
+function safeEqual(a, b2) {
+  const ab = Buffer.from(a, "utf-8");
+  const bb = Buffer.from(b2, "utf-8");
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
 }
 async function login(opts) {
   const apiEndpoint = resolveApiEndpoint(opts.apiEndpoint);
-  const startRes = await fetch(`${apiEndpoint}/auth/device`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}"
-  });
-  if (!startRes.ok) {
-    const text = await startRes.text().catch(() => "");
-    throw new Error(
-      `failed to start device authorization (HTTP ${startRes.status}): ${text.slice(0, 200)}`
-    );
-  }
-  const init = await startRes.json();
-  if (!init.device_code || !init.user_code) {
-    throw new Error("device authorization response missing device_code or user_code");
-  }
-  writeStderrJson({
-    status: "awaiting_authorization",
-    verification_uri: init.verification_uri,
-    verification_uri_complete: init.verification_uri_complete,
-    user_code: init.user_code,
-    expires_in: init.expires_in,
-    interval: init.interval,
-    hint: `Open ${init.verification_uri_complete} in your browser to authorise this device. If asked for a code, enter ${init.user_code}.`
-  });
-  openBrowser(init.verification_uri_complete);
-  const pollIntervalMs = opts.pollIntervalMs ?? init.interval * 1e3;
-  const totalDeadlineMs = opts.timeoutMs ?? init.expires_in * 1e3;
-  const deadline = Date.now() + totalDeadlineMs;
-  let currentInterval = pollIntervalMs;
-  while (Date.now() < deadline) {
-    await sleep(currentInterval);
-    const tokenRes = await fetch(`${apiEndpoint}/auth/token`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ device_code: init.device_code })
-    });
-    if (tokenRes.status === 200) {
-      const ok = await tokenRes.json();
-      if (!ok.token) {
-        throw new Error("device authorization returned success with no token");
-      }
-      const credsPath = writeCredentials({
-        api_endpoint: apiEndpoint,
-        token: ok.token,
-        // The dev sentinel `dev:<email>` is not a real JWT, so don't even
-        // try to decode it. expiresAtFromJwt() returns null for malformed
-        // input which is the right answer.
-        expires_at: expiresAtFromJwt(ok.token)
+  const timeoutMs = opts.timeoutMs ?? 5 * 60 * 1e3;
+  const state = randomBytes2(32).toString("base64url");
+  let server = null;
+  let timer = null;
+  try {
+    const tokenPromise = new Promise((resolve6, reject) => {
+      server = createServer((req, res) => {
+        try {
+          if (!req.url || !req.url.startsWith("/callback")) {
+            res.statusCode = 404;
+            res.end();
+            return;
+          }
+          const u = new URL(req.url, "http://127.0.0.1");
+          const token2 = u.searchParams.get("token");
+          const echoedState = u.searchParams.get("state");
+          if (!token2) {
+            res.statusCode = 400;
+            res.setHeader("content-type", "text/html; charset=utf-8");
+            res.end(FAILURE_PAGE);
+            reject(new Error("callback missing token query param"));
+            return;
+          }
+          if (!echoedState || !safeEqual(echoedState, state)) {
+            res.statusCode = 400;
+            res.setHeader("content-type", "text/html; charset=utf-8");
+            res.end(FAILURE_PAGE);
+            reject(new Error("callback state mismatch \u2014 refusing to store token"));
+            return;
+          }
+          res.statusCode = 200;
+          res.setHeader("content-type", "text/html; charset=utf-8");
+          res.end(SUCCESS_PAGE);
+          resolve6(token2);
+        } catch (err) {
+          res.statusCode = 500;
+          res.end(FAILURE_PAGE);
+          reject(err);
+        }
       });
-      writeStdout({ ok: true, api_endpoint: apiEndpoint, credentials_path: credsPath });
-      return;
-    }
-    let err = { error: "unknown" };
-    try {
-      err = await tokenRes.json();
-    } catch {
-      throw new Error(`unexpected /auth/token response (HTTP ${tokenRes.status})`);
-    }
-    if (err.error === "authorization_pending") {
-      continue;
-    }
-    if (err.error === "slow_down") {
-      currentInterval = typeof err.interval === "number" && err.interval > 0 ? err.interval * 1e3 : currentInterval + 5e3;
-      continue;
-    }
-    throw new Error(`device authorization failed: ${err.error}`);
+      server.listen(0, "127.0.0.1", () => {
+        const addr = server.address();
+        const callback = `http://127.0.0.1:${addr.port}/callback`;
+        const startUrl = `${apiEndpoint}/auth/start?cb=${encodeURIComponent(callback)}&state=${encodeURIComponent(state)}`;
+        openBrowser(startUrl);
+      });
+      timer = setTimeout(() => {
+        reject(new Error("login timed out waiting for callback"));
+      }, timeoutMs);
+    });
+    const token = await tokenPromise;
+    const credsPath = writeCredentials({
+      api_endpoint: apiEndpoint,
+      token,
+      expires_at: expiresAtFromJwt(token)
+    });
+    writeStdout({ ok: true, api_endpoint: apiEndpoint, credentials_path: credsPath });
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (server) await new Promise((r2) => server.close(() => r2()));
   }
-  throw new Error("device authorization timed out \u2014 re-run `btrmnt login` to start over");
 }
+var SUCCESS_PAGE, FAILURE_PAGE;
 var init_login = __esm({
   "src/commands/login.ts"() {
     "use strict";
@@ -345,6 +355,19 @@ var init_login = __esm({
     init_config();
     init_credentials();
     init_output();
+    SUCCESS_PAGE = `<!doctype html>
+<html><head><meta charset="utf-8"><title>btrmnt \u2014 authenticated</title>
+<style>body{font-family:system-ui,sans-serif;max-width:480px;margin:6rem auto;text-align:center}</style>
+</head><body>
+<h1>Authenticated</h1>
+<p>You can close this tab and return to Claude Code.</p>
+<script>try{window.close()}catch(e){}</script>
+</body></html>
+`;
+    FAILURE_PAGE = `<!doctype html>
+<html><head><meta charset="utf-8"><title>btrmnt \u2014 error</title></head>
+<body><h1>Sign-in failed</h1><p>Return to Claude Code; the plugin will report the error.</p></body></html>
+`;
   }
 });
 
@@ -6769,8 +6792,6 @@ async function dispatch(name, rest) {
       if (typeof flags["api-endpoint"] === "string") loginOpts.apiEndpoint = flags["api-endpoint"];
       if (typeof flags["timeout-ms"] === "string")
         loginOpts.timeoutMs = Number.parseInt(flags["timeout-ms"], 10);
-      if (typeof flags["poll-interval-ms"] === "string")
-        loginOpts.pollIntervalMs = Number.parseInt(flags["poll-interval-ms"], 10);
       await login2(loginOpts);
       return 0;
     }
