@@ -26,7 +26,15 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const BIN_ROOT = resolve(__dirname, '..')
 export const CLI_ENTRY = resolve(BIN_ROOT, 'src/cli.ts')
-export const TSX_BIN = resolve(BIN_ROOT, 'node_modules/.bin/tsx')
+// We spawn tsx's JS entry directly under `node` instead of going through the
+// `node_modules/.bin/tsx` shim. Two reasons:
+//   1) On Windows the shim is `tsx.CMD`, which Node 20+ refuses to spawn
+//      without `shell: true` (CVE-2024-27980). Routing through cmd.exe then
+//      means our argv has to survive cmd.exe quoting too, which trips up any
+//      arg containing spaces (e.g. `--message 'second commit'`).
+//   2) Skipping the shim is faster and behaves identically on POSIX, where the
+//      `.bin/tsx` symlink would have invoked the same JS anyway.
+export const TSX_ENTRY = resolve(BIN_ROOT, 'node_modules/tsx/dist/cli.mjs')
 
 export interface CliResult {
   code: number
@@ -55,7 +63,7 @@ export function runCli(args: readonly string[], env: NodeJS.ProcessEnv = {}): Cl
     if (k.startsWith('BTRMNT_') || k.startsWith('CLAUDE_PLUGIN_')) delete baseEnv[k]
   }
 
-  const child = spawn(TSX_BIN, [CLI_ENTRY, ...args], {
+  const child = spawn(process.execPath, [TSX_ENTRY, CLI_ENTRY, ...args], {
     env: { ...baseEnv, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

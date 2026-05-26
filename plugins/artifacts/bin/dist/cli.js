@@ -194,9 +194,13 @@ function writeCredentials(creds) {
   const tmpPath = `${path}.tmp.${process.pid}.${randomBytes(6).toString("hex")}`;
   try {
     writeFileSync(tmpPath, JSON.stringify(creds), { mode: 384, flag: "wx" });
-    chmodSync(tmpPath, 384);
+    if (!isWindows) {
+      chmodSync(tmpPath, 384);
+    }
     renameSync(tmpPath, path);
-    chmodSync(path, 384);
+    if (!isWindows) {
+      chmodSync(path, 384);
+    }
   } catch (err) {
     try {
       unlinkSync(tmpPath);
@@ -213,13 +217,15 @@ function readCredentials() {
       `Not logged in. No credentials file at ${path}. Run \`btrmnt login\` first.`
     );
   }
-  const mode = statSync(path).mode & 511;
-  if (mode !== 384) {
-    throw new CredentialsError(
-      `Refusing to read credentials at ${path}: file mode is 0${mode.toString(
-        8
-      )}, expected 0600. Run \`chmod 600 ${path}\`.`
-    );
+  if (!isWindows) {
+    const mode = statSync(path).mode & 511;
+    if (mode !== 384) {
+      throw new CredentialsError(
+        `Refusing to read credentials at ${path}: file mode is 0${mode.toString(
+          8
+        )}, expected 0600. Run \`chmod 600 ${path}\`.`
+      );
+    }
   }
   const raw = readFileSync(path, "utf-8");
   let parsed;
@@ -243,11 +249,12 @@ function readCredentials() {
   }
   return parsed;
 }
-var CredentialsError;
+var isWindows, CredentialsError;
 var init_credentials = __esm({
   "src/credentials.ts"() {
     "use strict";
     init_config();
+    isWindows = process.platform === "win32";
     CredentialsError = class extends Error {
       constructor(message) {
         super(message);
@@ -6583,9 +6590,9 @@ async function resolveSlugFromArgsOrCwd(explicit) {
   return slug;
 }
 function slugFromRemote(url) {
-  const m = url.match(/\/([a-z][a-z0-9-]{0,40}[a-z0-9])\.git$/);
+  const m = url.match(/[\/\\]([a-z][a-z0-9-]{0,40}[a-z0-9])\.git$/);
   if (m) return m[1];
-  const m2 = url.match(/\/([a-z][a-z0-9-]{0,40}[a-z0-9])\/?$/);
+  const m2 = url.match(/[\/\\]([a-z][a-z0-9-]{0,40}[a-z0-9])[\/\\]?$/);
   if (m2) return m2[1];
   return null;
 }

@@ -161,13 +161,14 @@ async function resolveSlugFromArgsOrCwd(explicit?: string): Promise<string> {
  * Pull a slug out of a remote URL like:
  *   https://api.btrmntlab.com/git/<tenant>/<slug>.git
  *   file:///tmp/.../<slug>.git
+ *   file://C:\Users\...\<slug>.git           (Windows file URLs may carry backslashes)
  *   git@host:tenant/slug.git
  */
 export function slugFromRemote(url: string): string | null {
-  const m = url.match(/\/([a-z][a-z0-9-]{0,40}[a-z0-9])\.git$/)
+  const m = url.match(/[\/\\]([a-z][a-z0-9-]{0,40}[a-z0-9])\.git$/)
   if (m) return m[1]!
   // Fallback for short paths (no .git suffix).
-  const m2 = url.match(/\/([a-z][a-z0-9-]{0,40}[a-z0-9])\/?$/)
+  const m2 = url.match(/[\/\\]([a-z][a-z0-9-]{0,40}[a-z0-9])[\/\\]?$/)
   if (m2) return m2[1]!
   return null
 }

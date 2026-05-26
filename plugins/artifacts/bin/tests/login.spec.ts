@@ -91,8 +91,12 @@ describe('btrmnt login', () => {
     const result = await run
     expect(result.code).toBe(0)
     expect(existsSync(credsPath)).toBe(true)
-    const mode = statSync(credsPath).mode & 0o777
-    expect(mode).toBe(0o600)
+    // Windows can't represent 0o600 in NTFS-mapped mode bits; production code
+    // intentionally skips the chmod, so we skip the assertion to match.
+    if (process.platform !== 'win32') {
+      const mode = statSync(credsPath).mode & 0o777
+      expect(mode).toBe(0o600)
+    }
     const contents = JSON.parse(readFileSync(credsPath, 'utf-8')) as {
       api_endpoint: string
       token: string

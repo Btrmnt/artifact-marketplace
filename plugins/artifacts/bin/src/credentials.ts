@@ -10,6 +10,14 @@
 // File mode: 0600. We enforce mode 0600 on READ too — if the file ends up with
 // looser perms we refuse to use it and emit a clear error. This is defence in
 // depth in case a user's $HOME has a permissive umask.
+//
+// Windows note: Node maps NTFS ACLs to Unix mode bits very coarsely — regular
+// files always report 0o666 (or 0o444 if the readonly attribute is set), and
+// `chmodSync(path, 0o600)` is silently a no-op. Mode 0o600 is therefore
+// unreachable on Windows regardless of the actual ACL. We skip the mode
+// dance there and rely on the default ACL of %USERPROFILE%\.btrmnt\, which
+// is inherited from the user's profile directory (locked to the user +
+// Administrators by default).
 
 import {
   chmodSync,
@@ -23,6 +31,8 @@ import {
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { credentialsDir, ConfigError, resolveCredentialsPath, validateApiEndpoint } from './config.js'
+
+const isWindows = process.platform === 'win32'
 
 export interface Credentials {
   api_endpoint: string
@@ -47,13 +57,17 @@ export function writeCredentials(creds: Credentials): string {
   const tmpPath = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
   try {
     writeFileSync(tmpPath, JSON.stringify(creds), { mode: 0o600, flag: 'wx' })
-    // Defence in depth — `mode` is honoured only on create, and on some
-    // platforms `flag: 'wx'` may interact with umask in unexpected ways.
-    chmodSync(tmpPath, 0o600)
+    if (!isWindows) {
+      // Defence in depth — `mode` is honoured only on create, and on some
+      // platforms `flag: 'wx'` may interact with umask in unexpected ways.
+      chmodSync(tmpPath, 0o600)
+    }
     renameSync(tmpPath, path)
-    // Re-chmod the final path on the off-chance the target's prior mode
-    // got applied somehow during rename. Cheap insurance.
-    chmodSync(path, 0o600)
+    if (!isWindows) {
+      // Re-chmod the final path on the off-chance the target's prior mode
+      // got applied somehow during rename. Cheap insurance.
+      chmodSync(path, 0o600)
+    }
   } catch (err) {
     // Best-effort cleanup so we don't leave .tmp.* litter behind.
     try {
@@ -73,13 +87,15 @@ export function readCredentials(): Credentials {
       `Not logged in. No credentials file at ${path}. Run \`btrmnt login\` first.`,
     )
   }
-  const mode = statSync(path).mode & 0o777
-  if (mode !== 0o600) {
-    throw new CredentialsError(
-      `Refusing to read credentials at ${path}: file mode is 0${mode.toString(
-        8,
-      )}, expected 0600. Run \`chmod 600 ${path}\`.`,
-    )
+  if (!isWindows) {
+    const mode = statSync(path).mode & 0o777
+    if (mode !== 0o600) {
+      throw new CredentialsError(
+        `Refusing to read credentials at ${path}: file mode is 0${mode.toString(
+          8,
+        )}, expected 0600. Run \`chmod 600 ${path}\`.`,
+      )
+    }
   }
   const raw = readFileSync(path, 'utf-8')
   let parsed: Credentials

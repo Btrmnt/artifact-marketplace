@@ -13,6 +13,13 @@ import { resolve } from 'node:path'
 import { freshTempDir, runCli } from './_helpers.js'
 import { createServer, type Server } from 'node:http'
 
+// On Windows, Node's NTFS->mode mapping cannot represent 0o600 (regular files
+// always report 0o666 regardless of ACL), so the mode-enforcement branch is
+// disabled in production code. The corresponding assertions can't pass on
+// Windows; skip them rather than weaken the Unix coverage.
+const isWindows = process.platform === 'win32'
+const itPosix = isWindows ? it.skip : it
+
 let mockApi: Server | null = null
 let mockApiPort = 0
 let mockApiToken = 'tok_credentials_spec'
@@ -78,7 +85,7 @@ describe('credentials file location', () => {
     expect(existsSync(credsPath)).toBe(true)
   })
 
-  it('writes the credentials file with mode 0600', async () => {
+  itPosix('writes the credentials file with mode 0600', async () => {
     const dir = freshTempDir('creds-')
     const credsPath = resolve(dir, 'credentials.json')
     const { code, credsPath: written } = await driveLogin({ BTRMNT_TEST_CREDS_FILE: credsPath })
@@ -93,7 +100,7 @@ describe('credentials file location', () => {
     expect(contents.token).toBe(mockApiToken)
   })
 
-  it('overwrites a pre-existing 0o644 file atomically, ending mode 0600', async () => {
+  itPosix('overwrites a pre-existing 0o644 file atomically, ending mode 0600', async () => {
     // Pre-seed a credentials file with loose perms (simulating a $HOME with
     // a permissive umask). After login the file must be 0600, the contents
     // must be the freshly-issued ones, and no `.tmp.*` litter must remain.
@@ -121,7 +128,7 @@ describe('credentials file location', () => {
     expect(leftovers).toEqual([])
   })
 
-  it('whoami refuses to read a credentials file with overly permissive mode', async () => {
+  itPosix('whoami refuses to read a credentials file with overly permissive mode', async () => {
     const dir = freshTempDir('creds-')
     mkdirSync(dir, { recursive: true })
     const credsPath = resolve(dir, 'credentials.json')
