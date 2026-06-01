@@ -30,7 +30,7 @@ const COMMANDS: CommandSpec[] = [
   { name: 'publish', description: "Push the current project's main branch and deploy to test." },
   { name: 'promote', description: "Fast-forward a project's prod branch to main and deploy." },
   { name: 'rollback', description: "Roll a project's prod branch back to an explicit historical commit." },
-  { name: 'grant', description: 'Grant a user access to a project (test, prod, or both).' },
+  { name: 'grant', description: 'Grant a user access to a project (defaults to prod; --env test|both to widen).' },
   { name: 'grants', description: 'List who has direct viewer access to a project, grouped by email.' },
   { name: 'revoke', description: "Revoke a user's access to a project." },
   { name: 'invite', description: 'Invite a new user into the current tenant.' },
@@ -237,7 +237,10 @@ async function dispatch(name: string, rest: readonly string[]): Promise<number> 
       const email = positional[0]
       const slugArg = positional[1]
       if (!email) throw new Error('grant: missing required <email> argument')
-      const env = asEnvScope(flags.env, 'both')
+      // Least-privilege default: a bare `grant` shares prod only. Test is the
+      // internal staging env, so widening to it must be deliberate
+      // (`--env test` / `--env both`).
+      const env = asEnvScope(flags.env, 'prod')
       const { grant } = await import('./commands/grants.js')
       await grant({
         email,
@@ -262,6 +265,9 @@ async function dispatch(name: string, rest: readonly string[]): Promise<number> 
       const email = positional[0]
       const slugArg = positional[1]
       if (!email) throw new Error('revoke: missing required <email> argument')
+      // Intentionally the mirror of grant's default: revoke defaults to `both`
+      // so "remove this person" pulls every grant they hold. Narrow with
+      // `--env prod`/`--env test` to revoke a single environment.
       const env = asEnvScope(flags.env, 'both')
       const { revoke } = await import('./commands/grants.js')
       await revoke({
