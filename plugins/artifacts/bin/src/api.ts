@@ -157,9 +157,10 @@ export class ApiClient {
   }
 
   grant(slug: string, req: CreateGrantRequest): Promise<Grant[]> {
-    // OpenAPI default for `env` is "both"; send it explicitly so the api never
-    // has to guess.
-    const body: CreateGrantRequest = { email: req.email, env: req.env ?? ('both' as EnvScope) }
+    // Always send `env` explicitly so the api never falls back to its broader
+    // OpenAPI default of "both". If a caller somehow omits it, prefer the
+    // least-privilege scope (prod only) rather than silently sharing test too.
+    const body: CreateGrantRequest = { email: req.email, env: req.env ?? ('prod' as EnvScope) }
     return this.request<Grant[]>(
       'POST',
       `/v1/projects/${encodeURIComponent(slug)}/grants`,

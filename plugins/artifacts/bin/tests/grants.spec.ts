@@ -149,7 +149,7 @@ async function bootstrapProject(slug: string, credsFile: string): Promise<string
 }
 
 describe('btrmnt grant', () => {
-  it('defaults to --env both', async () => {
+  it('defaults to --env prod (least privilege — does not silently share test)', async () => {
     const credsDir = freshTempDir('cpd-')
     const credsFile = writeCreds(credsDir)
     const projectDir = await bootstrapProject('grantslug', credsFile)
@@ -160,7 +160,18 @@ describe('btrmnt grant', () => {
     expect(r.code, r.stderr).toBe(0)
     const grant = calls.find((c) => c.url.endsWith('/grants') && c.method === 'POST')!
     expect(grant.url).toBe('/v1/projects/grantslug/grants')
-    expect(JSON.parse(grant.body)).toEqual({ email: 'b@x.com', env: 'both' })
+    expect(JSON.parse(grant.body)).toEqual({ email: 'b@x.com', env: 'prod' })
+  })
+
+  it('passes --env both through to widen to test + prod', async () => {
+    const credsDir = freshTempDir('cpd-')
+    const credsFile = writeCreds(credsDir)
+    const r = await runCli(['grant', 'd@x.com', 'slug-arg', '--env', 'both'], {
+      BTRMNT_TEST_CREDS_FILE: credsFile,
+    })
+    expect(r.code, r.stderr).toBe(0)
+    const grant = calls.find((c) => c.url.endsWith('/grants'))!
+    expect(JSON.parse(grant.body)).toEqual({ email: 'd@x.com', env: 'both' })
   })
 
   it('passes --env prod through', async () => {
@@ -190,6 +201,19 @@ describe('btrmnt revoke', () => {
     // `@` becomes `%40`, `+` becomes `%2B`. Any `/`/`?`/`#` in a malformed
     // email would now also be encoded, so it can't smuggle path segments.
     expect(del.url).toBe('/v1/projects/revokeslug/grants/b%2Bv1%40x.com?env=test')
+  })
+
+  it('defaults to --env both so a plain revoke removes every grant', async () => {
+    const credsDir = freshTempDir('cpd-')
+    const credsFile = writeCreds(credsDir)
+    const projectDir = await bootstrapProject('revokeall', credsFile)
+    const r = await runCli(['revoke', 'b@x.com'], {
+      BTRMNT_TEST_CREDS_FILE: credsFile,
+      BTRMNT_TEST_CWD: projectDir,
+    })
+    expect(r.code, r.stderr).toBe(0)
+    const del = calls.find((c) => c.method === 'DELETE' && c.url.includes('/grants/'))!
+    expect(del.url).toBe('/v1/projects/revokeall/grants/b%40x.com?env=both')
   })
 
   it('rejects an email with characters that could break the URL path', async () => {

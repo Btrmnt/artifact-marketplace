@@ -23,11 +23,11 @@ returns JSON on stdout (success) or stderr (failure, non-zero exit).
 | Create a new project | `btrmnt project new <slug> --path <dir>` |
 | List projects | `btrmnt project list` (or `btrmnt list`) |
 | Delete a project | `btrmnt project delete <slug> --yes` |
-| Publish current folder to test | `btrmnt publish` |
-| Promote test → prod | `btrmnt promote <slug>` |
+| Deploy / publish / "ship it" | `btrmnt publish` (→ **test only**; see "Deploying" below) |
+| Promote test → prod | `btrmnt promote <slug>` (only when the user asks for prod) |
 | Roll prod back to a commit | `btrmnt rollback <slug> --to <sha>` |
-| Add a viewer | `btrmnt grant <email> <slug> [--env test\|prod\|both]` |
-| Remove a viewer | `btrmnt revoke <email> <slug> [--env test\|prod\|both]` |
+| Add a viewer | `btrmnt grant <email> <slug> [--env test\|prod\|both]` (defaults to **prod**) |
+| Remove a viewer | `btrmnt revoke <email> <slug> [--env test\|prod\|both]` (defaults to both) |
 | Show who can view a project | `btrmnt grants <slug>` |
 | Invite a tenant user | `btrmnt invite <email> [--role tenant_admin\|tenant_user]` |
 
@@ -36,6 +36,32 @@ optional when run from inside a project directory — the CLI resolves it
 from the `btrmnt` git remote.
 
 ## Conventions that apply across commands
+
+### Deploying defaults to test — prod is a separate, explicit step
+
+"Deploy", "publish", "ship it", "push it up", and similar **mean publish to
+the test environment**. Run `btrmnt publish`, surface the test URL, and
+**stop there**. Do not chain into `btrmnt promote` on your own — promoting is
+what puts an artifact in front of real viewers on prod, and that should be a
+deliberate decision the user makes.
+
+Only run `btrmnt promote` when the user explicitly asks for prod — e.g. "promote
+it", "send it to prod", "make it live for everyone", or confirms when you offer.
+After a `publish`, it's good to *offer* the promote ("Published to test at
+<url> — want me to promote it to prod?"), but never assume it.
+
+If the user's very first request is unambiguously "deploy to prod" / "publish to
+production", you still go through test first: `publish` (→ test), then
+`promote` (→ prod). The two steps are not collapsible.
+
+### Sharing defaults to prod only
+
+When a user says "share this with <email>" / "give <email> access" without
+naming an environment, grant **prod only** — `btrmnt grant <email> <slug>`
+already defaults to `--env prod`. Test is the internal staging environment;
+only include it when the user explicitly wants the colleague to see test
+(`--env test` for test alone, `--env both` for both). When in doubt, prod
+only, and say which scope you used.
 
 ### Single-file HTML projects → rename to `index.html`
 
@@ -120,8 +146,9 @@ or have been granted access to.
 ### `publish`
 
 Run from the project's working directory. Apply the single-file rename
-rule first. Echo the deployed SHA and the viewable URL(s) (see multi-file
-rule).
+rule first. Echo the deployed SHA and the **test** viewable URL(s) (see
+multi-file rule). This is the end of a "deploy"/"publish" request — do not
+auto-promote (see "Deploying" above). Offer the promote as a next step.
 
 ### `promote`
 
@@ -129,8 +156,9 @@ rule).
 btrmnt promote <slug>
 ```
 
-Fast-forwards `prod` to `main` and redeploys. Echo the new prod SHA and
-the viewable URL(s).
+Fast-forwards `prod` to `main` and redeploys. **Only run when the user
+explicitly asks for prod** — never as an automatic follow-on to `publish`.
+Echo the new prod SHA and the viewable URL(s).
 
 ### `rollback`
 
@@ -148,8 +176,11 @@ Echo the new prod SHA and the viewable URL(s).
 
 ### `grant` / `revoke`
 
-Default scope is `--env both`. For `grant`, echo the resulting grant list.
-For `revoke`, confirm the remaining grants after the operation by running
+`grant` defaults to `--env prod` (share prod only unless the user asks for
+test/both — see "Sharing defaults to prod only" above). `revoke` defaults to
+`--env both` so a plain revoke removes the user from every environment. For
+`grant`, echo the resulting grant list and state the scope you used. For
+`revoke`, confirm the remaining grants after the operation by running
 `btrmnt grants <slug>`.
 
 ### `grants`

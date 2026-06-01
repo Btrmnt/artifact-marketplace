@@ -476,7 +476,7 @@ var init_api = __esm({
         );
       }
       grant(slug, req) {
-        const body = { email: req.email, env: req.env ?? "both" };
+        const body = { email: req.email, env: req.env ?? "prod" };
         return this.request(
           "POST",
           `/v1/projects/${encodeURIComponent(slug)}/grants`,
@@ -6719,7 +6719,7 @@ var COMMANDS = [
   { name: "publish", description: "Push the current project's main branch and deploy to test." },
   { name: "promote", description: "Fast-forward a project's prod branch to main and deploy." },
   { name: "rollback", description: "Roll a project's prod branch back to an explicit historical commit." },
-  { name: "grant", description: "Grant a user access to a project (test, prod, or both)." },
+  { name: "grant", description: "Grant a user access to a project (defaults to prod; --env test|both to widen)." },
   { name: "grants", description: "List who has direct viewer access to a project, grouped by email." },
   { name: "revoke", description: "Revoke a user's access to a project." },
   { name: "invite", description: "Invite a new user into the current tenant." },
@@ -6891,7 +6891,7 @@ async function dispatch(name, rest) {
       const email = positional[0];
       const slugArg = positional[1];
       if (!email) throw new Error("grant: missing required <email> argument");
-      const env = asEnvScope(flags.env, "both");
+      const env = asEnvScope(flags.env, "prod");
       const { grant: grant2 } = await Promise.resolve().then(() => (init_grants(), grants_exports));
       await grant2({
         email,
