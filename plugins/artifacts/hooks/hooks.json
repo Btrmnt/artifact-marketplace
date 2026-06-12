@@ -2,9 +2,12 @@
   "hooks": {
     "SessionStart": [
       {
-        "name": "check-login-state",
-        "description": "Print a one-line hint if the user has no stored platform token. Silent when logged in.",
-        "command": "sh -c '[ -f \"$HOME/.btrmnt/credentials.json\" ] || echo \"btrmnt artifacts: not signed in. Run /artifacts and ask to sign in.\"'"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -f \"$HOME/.btrmnt/credentials.json\" ] || echo \"btrmnt artifacts: not signed in. Run /artifacts and ask to sign in.\"'"
+          }
+        ]
       }
     ]
   }
