@@ -159,6 +159,47 @@ describe('btrmnt publish', () => {
     expect(out.sha).toMatch(/^[0-9a-f]{40}$/)
   })
 
+  it('--force replaces a divergent remote history that a plain publish rejects', async () => {
+    const credsPath = writeCreds(freshTempDir('creds-'))
+    // Initial project + push (v1) to the shared bare repo.
+    await bootstrapProject('force-test', credsPath)
+    const bare = bareReposBySlug['force-test']!
+
+    // A second, unrelated working tree pointing at the SAME bare repo — mimics a
+    // delete+recreate where the local history was reinitialised, so it shares no
+    // ancestor with what's on the remote.
+    const dirB = freshTempDir('project-b-')
+    const gitB = simpleGit(dirB)
+    await gitB.init()
+    await gitB.addConfig('user.email', 'x@example.com')
+    await gitB.addConfig('user.name', 'x')
+    writeFileSync(resolve(dirB, 'index.html'), '<h1>v2 fresh root</h1>\n')
+    await gitB.add('.')
+    await gitB.commit('fresh root')
+    await gitB.raw(['branch', '-M', 'main'])
+    await gitB.addRemote('btrmnt', `file://${bare}`)
+
+    // A plain publish is rejected non-fast-forward.
+    const plain = await runCli(['publish', '--message', 'should fail'], {
+      BTRMNT_TEST_CREDS_FILE: credsPath,
+      BTRMNT_TEST_CWD: dirB,
+    })
+    expect(plain.code).not.toBe(0)
+
+    // --force overwrites it. Add a change so the forced push carries a named commit.
+    appendFileSync(resolve(dirB, 'index.html'), '<p>forced change</p>\n')
+    const forced = await runCli(['publish', '--force', '--message', 'forced publish'], {
+      BTRMNT_TEST_CREDS_FILE: credsPath,
+      BTRMNT_TEST_CWD: dirB,
+    })
+    expect(forced.code, forced.stderr).toBe(0)
+
+    // Remote main is now the divergent history; the v1 "Initial commit" is gone.
+    const log = await simpleGit(bare).log(['main'])
+    expect(log.latest!.message).toContain('forced publish')
+    expect(log.all.some((c) => c.message.includes('Initial commit'))).toBe(false)
+  })
+
   it('errors when CWD has no btrmnt remote', async () => {
     const credsDir = freshTempDir('creds-')
     const credsPath = writeCreds(credsDir)
