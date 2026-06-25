@@ -79,10 +79,18 @@ export function authenticatedPush(opts: {
   remote: string
   branch: string
   token: string
+  /**
+   * When true, push with `--force`. The git-server permits non-fast-forward
+   * updates (it sets no receive.denyNonFastForwards and no hook rejects them),
+   * so this is the self-serve escape hatch for republishing a divergent history
+   * — e.g. after a delete+recreate left the remote with unrelated commits.
+   */
+  force?: boolean
 }): Promise<void> {
   return new Promise((resolveDone, reject) => {
     const env: NodeJS.ProcessEnv = { ...process.env, ...gitAuthEnv(opts.token) }
-    const child = spawn('git', ['push', opts.remote, opts.branch], {
+    const args = ['push', ...(opts.force ? ['--force'] : []), opts.remote, opts.branch]
+    const child = spawn('git', args, {
       cwd: opts.cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -102,7 +110,7 @@ export function authenticatedPush(opts: {
       }
       reject(
         new GitPushError(
-          `git push ${opts.remote} ${opts.branch} failed${
+          `git push ${opts.force ? '--force ' : ''}${opts.remote} ${opts.branch} failed${
             code !== null ? ` (exit ${code})` : ` (signal ${signal})`
           }${stderr ? `: ${stderr.trim()}` : ''}`,
           code,

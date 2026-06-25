@@ -27,7 +27,11 @@ const COMMANDS: CommandSpec[] = [
   { name: 'project new', description: 'Create a new project from a local folder.' },
   { name: 'project list', description: 'List projects in the current tenant.' },
   { name: 'project delete', description: 'Delete a project (and its environments).' },
-  { name: 'publish', description: "Push the current project's main branch and deploy to test." },
+  {
+    name: 'publish',
+    description:
+      "Push the current project's main branch and deploy to test. Use --force to replace a divergent remote history.",
+  },
   { name: 'promote', description: "Fast-forward a project's prod branch to main and deploy." },
   { name: 'rollback', description: "Roll a project's prod branch back to an explicit historical commit." },
   { name: 'grant', description: 'Grant a user access to a project (defaults to prod; --env test|both to widen).' },
@@ -199,10 +203,11 @@ async function dispatch(name: string, rest: readonly string[]): Promise<number> 
       return 0
     }
     case 'publish': {
-      const { flags } = parseFlags(rest, new Set(['allow-secrets']))
+      const { flags } = parseFlags(rest, new Set(['allow-secrets', 'force']))
       const { publish } = await import('./commands/publish-promote.js')
       await publish({
         allowSecrets: flags['allow-secrets'] === true,
+        force: flags.force === true,
         ...optStr(flags, 'message', 'message'),
         ...optStr(flags, 'api-endpoint', 'apiEndpoint'),
       })
