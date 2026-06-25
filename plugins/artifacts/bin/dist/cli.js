@@ -6164,7 +6164,8 @@ function gitAuthEnv(token) {
 function authenticatedPush(opts) {
   return new Promise((resolveDone, reject) => {
     const env = { ...process.env, ...gitAuthEnv(opts.token) };
-    const child = spawn3("git", ["push", opts.remote, opts.branch], {
+    const args = ["push", ...opts.force ? ["--force"] : [], opts.remote, opts.branch];
+    const child = spawn3("git", args, {
       cwd: opts.cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"]
@@ -6184,7 +6185,7 @@ function authenticatedPush(opts) {
       }
       reject(
         new GitPushError(
-          `git push ${opts.remote} ${opts.branch} failed${code !== null ? ` (exit ${code})` : ` (signal ${signal})`}${stderr ? `: ${stderr.trim()}` : ""}`,
+          `git push ${opts.force ? "--force " : ""}${opts.remote} ${opts.branch} failed${code !== null ? ` (exit ${code})` : ` (signal ${signal})`}${stderr ? `: ${stderr.trim()}` : ""}`,
           code,
           signal,
           stderr
@@ -6532,7 +6533,13 @@ async function publish(args) {
     message = log.latest.message;
   }
   const creds = readCredentials();
-  await authenticatedPush({ cwd, remote: "btrmnt", branch: "main", token: creds.token });
+  await authenticatedPush({
+    cwd,
+    remote: "btrmnt",
+    branch: "main",
+    token: creds.token,
+    ...args.force ? { force: true } : {}
+  });
   let testUrl = null;
   try {
     const endpoint = args.apiEndpoint ?? creds.api_endpoint ?? resolveApiEndpoint();
@@ -6716,7 +6723,10 @@ var COMMANDS = [
   { name: "project new", description: "Create a new project from a local folder." },
   { name: "project list", description: "List projects in the current tenant." },
   { name: "project delete", description: "Delete a project (and its environments)." },
-  { name: "publish", description: "Push the current project's main branch and deploy to test." },
+  {
+    name: "publish",
+    description: "Push the current project's main branch and deploy to test. Use --force to replace a divergent remote history."
+  },
   { name: "promote", description: "Fast-forward a project's prod branch to main and deploy." },
   { name: "rollback", description: "Roll a project's prod branch back to an explicit historical commit." },
   { name: "grant", description: "Grant a user access to a project (defaults to prod; --env test|both to widen)." },
@@ -6855,10 +6865,11 @@ async function dispatch(name, rest) {
       return 0;
     }
     case "publish": {
-      const { flags } = parseFlags(rest, /* @__PURE__ */ new Set(["allow-secrets"]));
+      const { flags } = parseFlags(rest, /* @__PURE__ */ new Set(["allow-secrets", "force"]));
       const { publish: publish2 } = await Promise.resolve().then(() => (init_publish_promote(), publish_promote_exports));
       await publish2({
         allowSecrets: flags["allow-secrets"] === true,
+        force: flags.force === true,
         ...optStr(flags, "message", "message"),
         ...optStr(flags, "api-endpoint", "apiEndpoint")
       });
